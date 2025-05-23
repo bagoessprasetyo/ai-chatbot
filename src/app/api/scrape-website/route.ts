@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
       .update({
         status: 'ready',
         scraped_content: combinedContent,
-        title: scrapedPages[0]?.title || 'Untitled Website',
+        // title: scrapedPages[0]?.title || 'Untitled Website',
         description: scrapedPages[0]?.description || null,
         updated_at: new Date().toISOString()
       })
