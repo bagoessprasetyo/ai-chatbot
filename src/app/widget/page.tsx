@@ -1,9 +1,8 @@
-// src/app/widget/page.tsx
 'use client'
 
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
-import ProductionChatWidget from '@/components/ProductionChatWidget'
+import SubscriptionAwareChatWidget from '@/components/SubscriptionAwareChatWidget'
 
 function WidgetContent() {
   const searchParams = useSearchParams()
@@ -19,7 +18,7 @@ function WidgetContent() {
   }
 
   return (
-    <ProductionChatWidget 
+    <SubscriptionAwareChatWidget 
       chatbotId={chatbotId}
       websiteId={websiteId}
     />
