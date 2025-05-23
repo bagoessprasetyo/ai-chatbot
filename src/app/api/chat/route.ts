@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// src/app/api/chat/route.ts
+// src/app/api/chat/route.ts - Updated with usage tracking and subscription limits
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 import OpenAI from 'openai'
@@ -17,7 +17,7 @@ interface ChatRequest {
   conversationHistory?: ChatMessage[]
 }
 
-// Initialize OpenAI (you'll need to add your API key to environment variables)
+// Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServerClient()
 
-    // Get chatbot and website information
+    // Get chatbot and website information with user details
     const { data: chatbot, error: chatbotError } = await supabase
       .from('chatbots')
       .select(`
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
           id,
           title,
           url,
+          user_id,
           system_prompt
         )
       `)
@@ -66,6 +67,54 @@ export async function POST(request: NextRequest) {
         { error: 'Chatbot not properly configured - missing system prompt' },
         { status: 500 }
       )
+    }
+
+    const userId = chatbot.websites.user_id
+    const websiteId = chatbot.websites.id
+
+    // Check user's subscription and usage limits
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
+
+    if (subscription) {
+      // Check if user has exceeded their monthly conversation limit
+      if (subscription.monthly_conversations_used >= subscription.monthly_conversations_limit) {
+        return NextResponse.json(
+          { 
+            error: 'Monthly conversation limit reached. Please upgrade your plan to continue.',
+            type: 'limit_exceeded'
+          },
+          { status: 429 }
+        )
+      }
+
+      // Check if trial has expired
+      if (subscription.status === 'trialing' && subscription.trial_end) {
+        const trialEnd = new Date(subscription.trial_end)
+        if (new Date() > trialEnd) {
+          return NextResponse.json(
+            { 
+              error: 'Free trial has expired. Please upgrade to continue using the service.',
+              type: 'trial_expired'
+            },
+            { status: 402 }
+          )
+        }
+      }
+
+      // Check if subscription is active
+      if (!['active', 'trialing'].includes(subscription.status)) {
+        return NextResponse.json(
+          { 
+            error: 'Subscription is not active. Please update your payment method.',
+            type: 'subscription_inactive'
+          },
+          { status: 402 }
+        )
+      }
     }
 
     // Prepare conversation for OpenAI
@@ -140,11 +189,60 @@ export async function POST(request: NextRequest) {
       // Don't fail the request if we can't save - still return the AI response
     }
 
+    // Track usage analytics
+    try {
+      // Track the conversation
+      await supabase.rpc('increment_usage', {
+        p_user_id: userId,
+        p_website_id: websiteId,
+        p_chatbot_id: chatbotId,
+        p_metric_type: 'conversation',
+        p_metric_value: 1
+      })
+
+      // Track messages sent and received
+      await supabase.rpc('increment_usage', {
+        p_user_id: userId,
+        p_website_id: websiteId,
+        p_chatbot_id: chatbotId,
+        p_metric_type: 'message_sent',
+        p_metric_value: 1
+      })
+
+      await supabase.rpc('increment_usage', {
+        p_user_id: userId,
+        p_website_id: websiteId,
+        p_chatbot_id: chatbotId,
+        p_metric_type: 'message_received',
+        p_metric_value: 1
+      })
+
+      // Update subscription usage count
+      if (subscription) {
+        await supabase
+          .from('subscriptions')
+          .update({ 
+            monthly_conversations_used: subscription.monthly_conversations_used + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId)
+      }
+
+    } catch (usageError) {
+      console.error('Error tracking usage:', usageError)
+      // Don't fail the request if usage tracking fails
+    }
+
     // Return the AI response
     return NextResponse.json({
       success: true,
       message: aiResponse,
-      conversationHistory: updatedHistory
+      conversationHistory: updatedHistory,
+      usage: subscription ? {
+        used: subscription.monthly_conversations_used + 1,
+        limit: subscription.monthly_conversations_limit,
+        remaining: subscription.monthly_conversations_limit - subscription.monthly_conversations_used - 1
+      } : undefined
     })
 
   } catch (error: any) {
@@ -222,3 +320,5 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
+// src/app/api/websites/[id]/status/route.ts - New endpoint for checking website status

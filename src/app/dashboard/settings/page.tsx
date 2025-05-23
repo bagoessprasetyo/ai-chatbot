@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/app/dashboard/settings/page.tsx
 'use client'
 
@@ -15,16 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-// import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-// import {
-//   Select,
-//   SelectContent,
-//   SelectItem,
-//   SelectTrigger,
-//   SelectValue,
-// } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -40,7 +33,6 @@ import {
   Key, 
   Bell, 
   Shield, 
-//   Palette,
   Save,
   Copy,
   Eye,
@@ -54,57 +46,75 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase";
-
-interface UserProfile {
-  id: string
-  email: string
-  full_name: string
-  avatar_url: string
-  created_at: string
-}
-
-interface NotificationSettings {
-  email_notifications: boolean
-  conversation_alerts: boolean
-  weekly_reports: boolean
-  security_alerts: boolean
-  marketing_emails: boolean
-}
-
-interface APIKey {
-  id: string
-  name: string
-  key: string
-  created_at: string
-  last_used: string | null
-  is_active: boolean
-}
+import { 
+  useUserSettings, 
+  useApiKeys, 
+  useSubscription, 
+  useSecuritySettings 
+} from "@/hooks/useSettings";
+import { 
+  PLANS,
+  CreateApiKeyRequest 
+} from "@/lib/types/settings";
 
 export default function SettingsPage() {
   const { user } = useAuth()
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [notifications, setNotifications] = useState<NotificationSettings>({
-    email_notifications: true,
-    conversation_alerts: true,
-    weekly_reports: false,
-    security_alerts: true,
-    marketing_emails: false
+  
+  // Use custom hooks for data management
+  const { 
+    settings: userSettings, 
+    loading: settingsLoading, 
+    error: settingsError,
+    updateSettings: updateUserSettings 
+  } = useUserSettings()
+  
+  const { 
+    apiKeys, 
+    loading: apiKeysLoading, 
+    error: apiKeysError,
+    createApiKey: createNewApiKey,
+    // updateApiKey,
+    deleteApiKey 
+  } = useApiKeys()
+  
+  const { 
+    subscription, 
+    loading: subscriptionLoading,
+    error: subscriptionError 
+  } = useSubscription()
+  
+  const { 
+    securitySettings, 
+    loading: securityLoading,
+    error: securityError,
+    updateSecuritySettings 
+  } = useSecuritySettings()
+  
+  // Profile state (separate from user settings)
+  const [profile, setProfile] = useState({
+    full_name: '',
+    email: '',
+    avatar_url: ''
   })
-  const [apiKeys, setApiKeys] = useState<APIKey[]>([])
+  const [profileLoading, setProfileLoading] = useState(true)
+  
+  // UI state
+  const [saving, setSaving] = useState(false)
   const [showCreateApiKey, setShowCreateApiKey] = useState(false)
   const [newApiKeyName, setNewApiKeyName] = useState('')
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set())
+  const [newApiKey, setNewApiKey] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("account")
 
+  // Load user profile
   useEffect(() => {
-    const fetchUserData = async () => {
+    const fetchProfile = async () => {
       if (!user) return
 
       try {
+        setProfileLoading(true)
         const supabase = createClient()
         
-        // Fetch user profile
         const { data: profileData } = await supabase
           .from('profiles')
           .select('*')
@@ -112,50 +122,32 @@ export default function SettingsPage() {
           .single()
 
         if (profileData) {
-          setProfile(profileData)
-        } else {
-          // Create profile if it doesn't exist
           setProfile({
-            id: user.id,
-            email: user.email || '',
+            full_name: profileData.full_name || '',
+            email: profileData.email || user.email || '',
+            avatar_url: profileData.avatar_url || ''
+          })
+        } else {
+          // Set default values from auth user
+          setProfile({
             full_name: user.user_metadata?.full_name || '',
-            avatar_url: user.user_metadata?.avatar_url || '',
-            created_at: user.created_at || new Date().toISOString()
+            email: user.email || '',
+            avatar_url: user.user_metadata?.avatar_url || ''
           })
         }
-
-        // Mock API keys data
-        setApiKeys([
-          {
-            id: '1',
-            name: 'Production API',
-            key: 'wb_sk_1234567890abcdef',
-            created_at: '2024-01-15T10:00:00Z',
-            last_used: '2024-01-20T14:30:00Z',
-            is_active: true
-          },
-          {
-            id: '2',
-            name: 'Development API',
-            key: 'wb_sk_abcdef1234567890',
-            created_at: '2024-01-10T09:00:00Z',
-            last_used: null,
-            is_active: true
-          }
-        ])
-
       } catch (error) {
-        console.error('Error fetching user data:', error)
+        console.error('Error loading profile:', error)
       } finally {
-        setLoading(false)
+        setProfileLoading(false)
       }
     }
 
-    fetchUserData()
+    fetchProfile()
   }, [user])
 
+  // Profile management
   const handleSaveProfile = async () => {
-    if (!profile || !user) return
+    if (!user) return
 
     setSaving(true)
     try {
@@ -182,45 +174,71 @@ export default function SettingsPage() {
     }
   }
 
+  // Notification settings management
   const handleSaveNotifications = async () => {
+    if (!userSettings) return
+
     setSaving(true)
     try {
-      // In a real app, you'd save to your backend
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      alert('Notification settings saved!')
+      await updateUserSettings({
+        email_notifications: userSettings.email_notifications,
+        conversation_alerts: userSettings.conversation_alerts,
+        weekly_reports: userSettings.weekly_reports,
+        security_alerts: userSettings.security_alerts,
+        marketing_emails: userSettings.marketing_emails
+      })
+      alert('Notification settings saved successfully!')
     } catch (error) {
       console.error('Error saving notifications:', error)
+      alert('Failed to save notification settings')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleCreateApiKey = () => {
+  // API key management
+  const handleCreateApiKey = async () => {
     if (!newApiKeyName.trim()) return
 
-    const newKey: APIKey = {
-      id: Date.now().toString(),
-      name: newApiKeyName,
-      key: `wb_sk_${Math.random().toString(36).substr(2, 16)}`,
-      created_at: new Date().toISOString(),
-      last_used: null,
-      is_active: true
-    }
+    setSaving(true)
+    try {
+      const request: CreateApiKeyRequest = {
+        name: newApiKeyName.trim(),
+        permissions: []
+      }
 
-    setApiKeys([...apiKeys, newKey])
-    setNewApiKeyName('')
-    setShowCreateApiKey(false)
+      const newKey = await createNewApiKey(request)
+      setNewApiKey(newKey.key) // Store the full key to show once
+      setNewApiKeyName('')
+      setShowCreateApiKey(false)
+    } catch (error) {
+      console.error('Error creating API key:', error)
+      alert('Failed to create API key')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleDeleteApiKey = (keyId: string) => {
-    if (confirm('Are you sure you want to delete this API key? This action cannot be undone.')) {
-      setApiKeys(apiKeys.filter(key => key.id !== keyId))
+  const handleDeleteApiKey = async (keyId: string) => {
+    if (!confirm('Are you sure you want to delete this API key? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      await deleteApiKey(keyId)
+    } catch (error) {
+      console.error('Error deleting API key:', error)
+      alert('Failed to delete API key')
     }
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    alert('Copied to clipboard!')
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      alert('Copied to clipboard!')
+    } catch (error) {
+      console.error('Failed to copy:', error)
+    }
   }
 
   const toggleKeyVisibility = (keyId: string) => {
@@ -233,7 +251,22 @@ export default function SettingsPage() {
     setVisibleKeys(newVisible)
   }
 
-  if (loading) {
+  // Security settings management
+  const handleUpdateSecuritySetting = async (key: string, value: any) => {
+    if (!securitySettings) return
+
+    try {
+      await updateSecuritySettings({ [key]: value })
+    } catch (error) {
+      console.error('Error updating security setting:', error)
+      alert('Failed to update security setting')
+    }
+  }
+
+  const currentPlan = PLANS.find(plan => plan.id === subscription?.plan_id) || PLANS[0]
+  const isLoading = settingsLoading || apiKeysLoading || subscriptionLoading || securityLoading || profileLoading
+
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
@@ -260,7 +293,59 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="account" className="w-full">
+      {/* Error display */}
+      {(settingsError || apiKeysError || subscriptionError || securityError) && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-red-800">
+              <AlertTriangle className="w-4 h-4" />
+              <span className="text-sm">
+                {settingsError || apiKeysError || subscriptionError || securityError}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* New API Key Created Dialog */}
+      {newApiKey && (
+        <Dialog open={!!newApiKey} onOpenChange={() => setNewApiKey(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>API Key Created Successfully</DialogTitle>
+              <DialogDescription>
+                Make sure to copy your API key now. You wont be able to see it again!
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid gap-2">
+                <Label>Your new API key</Label>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={newApiKey} 
+                    readOnly 
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => copyToClipboard(newApiKey)}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setNewApiKey(null)}>
+                I have saved my API key
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="account">
             <User className="w-4 h-4 mr-2" />
@@ -299,8 +384,8 @@ export default function SettingsPage() {
                   <Label htmlFor="full_name">Full Name</Label>
                   <Input
                     id="full_name"
-                    value={profile?.full_name || ''}
-                    onChange={(e) => setProfile(prev => prev ? { ...prev, full_name: e.target.value } : null)}
+                    value={profile.full_name}
+                    onChange={(e) => setProfile(prev => ({ ...prev, full_name: e.target.value }))}
                     placeholder="Enter your full name"
                   />
                 </div>
@@ -309,8 +394,8 @@ export default function SettingsPage() {
                   <Input
                     id="email"
                     type="email"
-                    value={profile?.email || ''}
-                    onChange={(e) => setProfile(prev => prev ? { ...prev, email: e.target.value } : null)}
+                    value={profile.email}
+                    onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
                     placeholder="Enter your email"
                   />
                   <p className="text-sm text-muted-foreground">
@@ -321,8 +406,8 @@ export default function SettingsPage() {
                   <Label htmlFor="avatar_url">Avatar URL</Label>
                   <Input
                     id="avatar_url"
-                    value={profile?.avatar_url || ''}
-                    onChange={(e) => setProfile(prev => prev ? { ...prev, avatar_url: e.target.value } : null)}
+                    value={profile.avatar_url}
+                    onChange={(e) => setProfile(prev => ({ ...prev, avatar_url: e.target.value }))}
                     placeholder="https://example.com/avatar.jpg"
                   />
                 </div>
@@ -361,13 +446,21 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm font-medium">Member since</span>
                   <span className="text-sm text-muted-foreground">
-                    {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}
+                    {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm font-medium">Plan</span>
-                  <Badge variant="secondary">Free Trial</Badge>
+                  <Badge variant="secondary">{currentPlan.name}</Badge>
                 </div>
+                {subscription && (
+                  <div className="flex items-center justify-between py-2">
+                    <span className="text-sm font-medium">Usage this month</span>
+                    <span className="text-sm text-muted-foreground">
+                      {subscription.monthly_conversations_used} / {subscription.monthly_conversations_limit} conversations
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -383,90 +476,114 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="email_notifications">Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive email notifications for important updates
-                  </p>
-                </div>
-                <Switch
-                  id="email_notifications"
-                  checked={notifications.email_notifications}
-                  onCheckedChange={(checked) => 
-                    setNotifications(prev => ({ ...prev, email_notifications: checked }))
-                  }
-                />
-              </div>
-              
-              <Separator />
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="conversation_alerts">Conversation Alerts</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Get notified when your chatbot receives messages
-                  </p>
-                </div>
-                <Switch
-                  id="conversation_alerts"
-                  checked={notifications.conversation_alerts}
-                  onCheckedChange={(checked) => 
-                    setNotifications(prev => ({ ...prev, conversation_alerts: checked }))
-                  }
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="weekly_reports">Weekly Reports</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive weekly analytics and performance reports
-                  </p>
-                </div>
-                <Switch
-                  id="weekly_reports"
-                  checked={notifications.weekly_reports}
-                  onCheckedChange={(checked) => 
-                    setNotifications(prev => ({ ...prev, weekly_reports: checked }))
-                  }
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="security_alerts">Security Alerts</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Important security notifications (recommended)
-                  </p>
-                </div>
-                <Switch
-                  id="security_alerts"
-                  checked={notifications.security_alerts}
-                  onCheckedChange={(checked) => 
-                    setNotifications(prev => ({ ...prev, security_alerts: checked }))
-                  }
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="marketing_emails">Marketing Emails</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Product updates, tips, and promotional content
-                  </p>
-                </div>
-                <Switch
-                  id="marketing_emails"
-                  checked={notifications.marketing_emails}
-                  onCheckedChange={(checked) => 
-                    setNotifications(prev => ({ ...prev, marketing_emails: checked }))
-                  }
-                />
-              </div>
+              {userSettings && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="email_notifications">Email Notifications</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Receive email notifications for important updates
+                      </p>
+                    </div>
+                    <Switch
+                      id="email_notifications"
+                      checked={userSettings.email_notifications}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateUserSettings({ email_notifications: checked })
+                        } catch (error) {
+                          console.error('Error updating setting:', error)
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="conversation_alerts">Conversation Alerts</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Get notified when your chatbot receives messages
+                      </p>
+                    </div>
+                    <Switch
+                      id="conversation_alerts"
+                      checked={userSettings.conversation_alerts}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateUserSettings({ conversation_alerts: checked })
+                        } catch (error) {
+                          console.error('Error updating setting:', error)
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="weekly_reports">Weekly Reports</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Receive weekly analytics and performance reports
+                      </p>
+                    </div>
+                    <Switch
+                      id="weekly_reports"
+                      checked={userSettings.weekly_reports}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateUserSettings({ weekly_reports: checked })
+                        } catch (error) {
+                          console.error('Error updating setting:', error)
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="security_alerts">Security Alerts</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Important security notifications (recommended)
+                      </p>
+                    </div>
+                    <Switch
+                      id="security_alerts"
+                      checked={userSettings.security_alerts}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateUserSettings({ security_alerts: checked })
+                        } catch (error) {
+                          console.error('Error updating setting:', error)
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="marketing_emails">Marketing Emails</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Product updates, tips, and promotional content
+                      </p>
+                    </div>
+                    <Switch
+                      id="marketing_emails"
+                      checked={userSettings.marketing_emails}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await updateUserSettings({ marketing_emails: checked })
+                        } catch (error) {
+                          console.error('Error updating setting:', error)
+                        }
+                      }}
+                    />
+                  </div>
+                </>
+              )}
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveNotifications} disabled={saving}>
+              <Button onClick={handleSaveNotifications} disabled={saving || !userSettings}>
                 {saving ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -475,7 +592,7 @@ export default function SettingsPage() {
                 ) : (
                   <>
                     <Save className="w-4 h-4 mr-2" />
-                    Save Preferences
+                    Save All Preferences
                   </>
                 )}
               </Button>
@@ -523,8 +640,18 @@ export default function SettingsPage() {
                       <Button variant="outline" onClick={() => setShowCreateApiKey(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreateApiKey} disabled={!newApiKeyName.trim()}>
-                        Create Key
+                      <Button 
+                        onClick={handleCreateApiKey} 
+                        disabled={!newApiKeyName.trim() || saving}
+                      >
+                        {saving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Key'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -545,7 +672,10 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <code className="px-2 py-1 font-mono text-sm bg-gray-100 rounded">
-                            {visibleKeys.has(apiKey.id) ? apiKey.key : `${apiKey.key.slice(0, 8)}${"*".repeat(apiKey.key.length - 8)}`}
+                            {visibleKeys.has(apiKey.id) 
+                              ? `${apiKey.key_prefix}[HIDDEN]` 
+                              : apiKey.key_prefix
+                            }
                           </code>
                           <Button
                             variant="ghost"
@@ -557,7 +687,7 @@ export default function SettingsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard(apiKey.key)}
+                            onClick={() => copyToClipboard(apiKey.key_prefix)}
                           >
                             <Copy className="w-4 h-4" />
                           </Button>
@@ -565,7 +695,7 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span>Created: {new Date(apiKey.created_at).toLocaleDateString()}</span>
                           <span>
-                            Last used: {apiKey.last_used ? new Date(apiKey.last_used).toLocaleDateString() : 'Never'}
+                            Last used: {apiKey.last_used_at ? new Date(apiKey.last_used_at).toLocaleDateString() : 'Never'}
                           </span>
                         </div>
                       </div>
@@ -634,86 +764,49 @@ export default function SettingsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div>
-                    <h4 className="font-medium">Free Trial</h4>
+                    <h4 className="font-medium">{currentPlan.name}</h4>
                     <p className="text-sm text-muted-foreground">
-                      14 days remaining • Up to 100 conversations
+                      {subscription?.status === 'trialing' && subscription.trial_end
+                        ? `Trial ends ${new Date(subscription.trial_end).toLocaleDateString()}`
+                        : `${subscription?.monthly_conversations_used || 0} / ${subscription?.monthly_conversations_limit || 0} conversations used`
+                      }
                     </p>
                   </div>
                   <Badge variant="secondary">Current Plan</Badge>
                 </div>
                 
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Card className="border-blue-200">
-                    <CardHeader className="text-center">
-                      <CardTitle className="text-lg">Starter</CardTitle>
-                      <div className="text-3xl font-bold">$29<span className="text-sm font-normal">/mo</span></div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">500 conversations/month</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">1 website</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">Email support</span>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button variant="outline" className="w-full">Upgrade to Starter</Button>
-                    </CardFooter>
-                  </Card>
-
-                  <Card className="border-green-200">
-                    <CardHeader className="text-center">
-                      <CardTitle className="text-lg">Professional</CardTitle>
-                      <div className="text-3xl font-bold">$79<span className="text-sm font-normal">/mo</span></div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">2,000 conversations/month</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">3 websites</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">Priority support</span>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button className="w-full">Upgrade to Pro</Button>
-                    </CardFooter>
-                  </Card>
-
-                  <Card className="border-purple-200">
-                    <CardHeader className="text-center">
-                      <CardTitle className="text-lg">Business</CardTitle>
-                      <div className="text-3xl font-bold">$199<span className="text-sm font-normal">/mo</span></div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">10,000 conversations/month</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">10 websites</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span className="text-sm">Dedicated support</span>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button variant="outline" className="w-full">Upgrade to Business</Button>
-                    </CardFooter>
-                  </Card>
+                  {PLANS.slice(1).map((plan) => (
+                    <Card key={plan.id} className={plan.popular ? "border-blue-200" : ""}>
+                      <CardHeader className="text-center">
+                        <CardTitle className="text-lg">{plan.name}</CardTitle>
+                        <div className="text-3xl font-bold">
+                          ${(plan.price / 100).toFixed(0)}
+                          <span className="text-sm font-normal">/mo</span>
+                        </div>
+                        {plan.popular && (
+                          <Badge className="mx-auto">Most Popular</Badge>
+                        )}
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {plan.features.map((feature, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-sm">{feature}</span>
+                          </div>
+                        ))}
+                      </CardContent>
+                      <CardFooter>
+                        <Button 
+                          variant={plan.popular ? "default" : "outline"} 
+                          className="w-full"
+                          disabled={subscription?.plan_id === plan.id}
+                        >
+                          {subscription?.plan_id === plan.id ? 'Current Plan' : `Upgrade to ${plan.name}`}
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))}
                 </div>
               </div>
             </CardContent>
@@ -728,7 +821,10 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               <div className="py-8 text-center text-muted-foreground">
-                No billing history available. You are currently on the free trial.
+                {subscription?.status === 'trialing' 
+                  ? "No billing history available. You are currently on the free trial."
+                  : "No billing history available yet."
+                }
               </div>
             </CardContent>
           </Card>
@@ -750,11 +846,51 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">Two-Factor Authentication</p>
                     <p className="text-sm text-muted-foreground">
-                      Add an extra layer of security to your account
+                      {securitySettings?.two_factor_enabled 
+                        ? 'Two-factor authentication is enabled'
+                        : 'Add an extra layer of security to your account'
+                      }
                     </p>
                   </div>
                 </div>
-                <Button variant="outline">Enable 2FA</Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => handleUpdateSecuritySetting('two_factor_enabled', !securitySettings?.two_factor_enabled)}
+                >
+                  {securitySettings?.two_factor_enabled ? 'Disable 2FA' : 'Enable 2FA'}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Bell className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <p className="font-medium">Login Alerts</p>
+                    <p className="text-sm text-muted-foreground">
+                      Get notified of new login attempts
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={securitySettings?.login_alerts_enabled || false}
+                  onCheckedChange={(checked) => handleUpdateSecuritySetting('login_alerts_enabled', checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-orange-600" />
+                  <div>
+                    <p className="font-medium">Suspicious Activity Alerts</p>
+                    <p className="text-sm text-muted-foreground">
+                      Get notified of unusual account activity
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={securitySettings?.suspicious_activity_alerts || false}
+                  onCheckedChange={(checked) => handleUpdateSecuritySetting('suspicious_activity_alerts', checked)}
+                />
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -763,19 +899,22 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">Password</p>
                     <p className="text-sm text-muted-foreground">
-                      Change your account password
+                      {securitySettings?.password_changed_at
+                        ? `Last changed ${new Date(securitySettings.password_changed_at).toLocaleDateString()}`
+                        : 'Change your account password'
+                      }
                     </p>
                   </div>
                 </div>
                 <Button variant="outline">Change Password</Button>
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg">
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-orange-600" />
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
                   <div>
-                    <p className="font-medium">Delete Account</p>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="font-medium text-red-800">Delete Account</p>
+                    <p className="text-sm text-red-600">
                       Permanently delete your account and all data
                     </p>
                   </div>
@@ -798,7 +937,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-medium">Current Session</p>
                     <p className="text-sm text-muted-foreground">
-                      Chrome on macOS • Last seen now
+                      {navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Browser'} • Last seen now
                     </p>
                   </div>
                   <Badge variant="secondary">Current</Badge>

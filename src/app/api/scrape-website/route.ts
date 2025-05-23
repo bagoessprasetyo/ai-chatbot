@@ -3,7 +3,6 @@
 // src/app/api/scrape-website/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
-import * as cheerio from 'cheerio'
 
 interface ScrapeRequest {
   websiteId: string
@@ -18,161 +17,201 @@ interface ScrapedPage {
   keywords?: string[]
 }
 
-// Clean and extract main content from HTML
-function extractMainContent(html: string, url: string): ScrapedPage {
-  const $ = cheerio.load(html)
-  
-  // Remove script, style, nav, footer, and other non-content elements
-  const elementsToRemove = [
-    'script', 'style', 'nav', 'footer', 'header', 
-    '.navigation', '.nav', '.footer', '.header',
-    '.sidebar', '.menu', '.advertisement', '.ads'
-  ]
-  
-  elementsToRemove.forEach(selector => {
-    $(selector).remove()
-  })
-
-  // Extract title
-  const title = $('title').text().trim() || 'Untitled Page'
-
-  // Extract meta description
-  const description = $('meta[name="description"]').attr('content')?.trim()
-
-  // Extract keywords
-  const keywordsContent = $('meta[name="keywords"]').attr('content')
-  const keywords = keywordsContent?.split(',').map(k => k.trim())
-
-  // Try to find main content area
-  let mainContent = ''
-  const contentSelectors = [
-    'main',
-    '[role="main"]',
-    '.main-content',
-    '.content',
-    'article',
-    '.post-content',
-    '.entry-content',
-    '#content',
-    '#main'
-  ]
-
-  for (const selector of contentSelectors) {
-    const contentEl = $(selector)
-    if (contentEl.length && contentEl.text().trim().length > 100) {
-      mainContent = contentEl.text().trim()
-      break
+interface FirecrawlResponse {
+  success: boolean
+  data?: {
+    content: string
+    markdown: string
+    metadata: {
+      title: string
+      description?: string
+      keywords?: string
+      [key: string]: any
     }
-  }
-
-  // Fallback: extract from body if no main content found
-  if (!mainContent) {
-    mainContent = $('body').text().trim()
-  }
-
-  // Clean up whitespace and normalize
-  mainContent = mainContent
-    .replace(/\s+/g, ' ')
-    .replace(/\n\s*\n/g, '\n')
-    .trim()
-
-  return {
-    url,
-    title,
-    content: mainContent,
-    description,
-    keywords
-  }
+    [key: string]: any
+  }[]
+  error?: string
 }
 
-// Discover pages from sitemap (simplified version)
-async function discoverPages(baseUrl: string): Promise<string[]> {
-  const urls = new Set<string>([baseUrl])
+// Function to scrape using Firecrawl API
+async function scrapeWithFirecrawl(url: string): Promise<ScrapedPage[]> {
+  const firecrawlApiKey = process.env.FIRECRAWL_API_KEY || 'fc-048a3afc77d14c789c0922436d3755aa'
   
+  // Debug logging
+  console.log('Environment check:')
+  console.log('FIRECRAWL_API_KEY exists:', !!firecrawlApiKey)
+  console.log('FIRECRAWL_API_KEY length:', firecrawlApiKey?.length || 0)
+  
+  if (!firecrawlApiKey) {
+    throw new Error('Firecrawl API key not configured. Please add FIRECRAWL_API_KEY to your environment variables 1.')
+  }
+
+  console.log('Starting Firecrawl scrape for:', url)
+
   try {
-    // Try to fetch sitemap.xml
-    const sitemapUrl = `${baseUrl}/sitemap.xml`
-    const response = await fetch(sitemapUrl, {
+    // Use Firecrawl's crawl endpoint to get multiple pages
+    const crawlResponse = await fetch('https://api.firecrawl.dev/v0/crawl', {
+      method: 'POST',
       headers: {
-        'User-Agent': 'WebBot-AI-Scraper/1.0'
-      }
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${firecrawlApiKey}`
+      },
+      body: JSON.stringify({
+        url: url,
+        crawlerOptions: {
+          includes: [`${new URL(url).origin}/*`],
+          excludes: [
+            '**/blog/**',
+            '**/news/**',
+            '**/press/**',
+            '**/*.pdf',
+            '**/*.jpg',
+            '**/*.png',
+            '**/*.gif'
+          ],
+          generateImgAltText: false,
+          returnOnlyUrls: false,
+          maxDepth: 2,
+          mode: 'fast',
+          limit: 10
+        },
+        pageOptions: {
+          onlyMainContent: true,
+          includeHtml: false,
+          includeRawHtml: false
+        }
+      })
     })
-    
-    if (response.ok) {
-      const content = await response.text()
-      // Simple XML parsing for URLs
-      const urlMatches = content.match(/<loc>(.*?)<\/loc>/g)
-      if (urlMatches) {
-        urlMatches.forEach(match => {
-          const url = match.replace(/<\/?loc>/g, '')
-          if (url.startsWith('http')) {
-            urls.add(url)
+
+    if (!crawlResponse.ok) {
+      const errorText = await crawlResponse.text()
+      console.error('Firecrawl crawl request failed:', crawlResponse.status, errorText)
+      throw new Error(`Firecrawl API error: ${crawlResponse.status} - ${errorText}`)
+    }
+
+    const crawlResult = await crawlResponse.json()
+    console.log('Firecrawl crawl initiated:', crawlResult)
+
+    // If we get a jobId, we need to poll for results
+    if (crawlResult.jobId) {
+      console.log('Polling for crawl results, jobId:', crawlResult.jobId)
+      
+      // Poll for results with timeout
+      const maxAttempts = 30 // 5 minutes max
+      let attempt = 0
+      
+      while (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 10000)) // Wait 10 seconds
+        
+        const statusResponse = await fetch(`https://api.firecrawl.dev/v0/crawl/status/${crawlResult.jobId}`, {
+          headers: {
+            'Authorization': `Bearer ${firecrawlApiKey}`
           }
         })
-      }
-    }
-  } catch (error) {
-    console.log('No sitemap found, using base URL only')
-  }
 
-  // Limit to reasonable number of pages
-  return Array.from(urls).slice(0, 10)
+        if (!statusResponse.ok) {
+          throw new Error(`Failed to check crawl status: ${statusResponse.status}`)
+        }
+
+        const statusResult = await statusResponse.json()
+        console.log(`Crawl status check ${attempt + 1}:`, statusResult.status)
+
+        if (statusResult.status === 'completed') {
+          return processFirecrawlData(statusResult.data || [])
+        } else if (statusResult.status === 'failed') {
+          throw new Error('Firecrawl job failed: ' + (statusResult.error || 'Unknown error'))
+        }
+
+        attempt++
+      }
+      
+      throw new Error('Crawl timed out after 5 minutes')
+    }
+
+    // If we get immediate results
+    if (crawlResult.success && crawlResult.data) {
+      return processFirecrawlData(crawlResult.data)
+    }
+
+    throw new Error('Unexpected response from Firecrawl API')
+
+  } catch (error) {
+    console.error('Firecrawl error:', error)
+    
+    // Fallback: try single page scrape
+    console.log('Falling back to single page scrape')
+    return await scrapePageWithFirecrawl(url)
+  }
 }
 
-// Main scraping function
-async function scrapeWebsite(url: string): Promise<ScrapedPage[]> {
-  console.log('Starting to scrape:', url)
+// Function to scrape a single page with Firecrawl
+async function scrapePageWithFirecrawl(url: string): Promise<ScrapedPage[]> {
+  const firecrawlApiKey = process.env.FIRECRAWL_API_KEY
   
-  try {
-    // Discover pages to scrape
-    const pagesToScrape = await discoverPages(url)
-    console.log(`Found ${pagesToScrape.length} pages to scrape`)
-    
-    const scrapedPages: ScrapedPage[] = []
-    
-    // Scrape each page
-    for (const pageUrl of pagesToScrape) {
-      try {
-        console.log('Scraping page:', pageUrl)
-        
-        const response = await fetch(pageUrl, {
-          headers: {
-            'User-Agent': 'WebBot-AI-Scraper/1.0 (+https://webbot-ai.com)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-          // Add timeout
-          signal: AbortSignal.timeout(10000) // 10 second timeout
-        })
-        
-        if (!response.ok) {
-          console.log(`Failed to fetch ${pageUrl}: ${response.status}`)
-          continue
-        }
-        
-        const html = await response.text()
-        const scrapedPage = extractMainContent(html, pageUrl)
-        
-        // Only include pages with substantial content
-        if (scrapedPage.content.length > 100) {
-          scrapedPages.push(scrapedPage)
-        }
-        
-        // Add delay between requests to be respectful
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-      } catch (error) {
-        console.log(`Error scraping ${pageUrl}:`, error)
-        continue
-      }
-    }
-    
-    console.log(`Successfully scraped ${scrapedPages.length} pages`)
-    return scrapedPages
-    
-  } catch (error) {
-    console.error('Error in scrapeWebsite:', error)
-    throw error
+  if (!firecrawlApiKey) {
+    throw new Error('Firecrawl API key not configured for single page scrape.')
   }
+
+  const response = await fetch('https://api.firecrawl.dev/v0/scrape', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${firecrawlApiKey}`
+    },
+    body: JSON.stringify({
+      url: url,
+      pageOptions: {
+        onlyMainContent: true,
+        includeHtml: false,
+        includeRawHtml: false
+      }
+    })
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Firecrawl single page scrape failed: ${response.status} - ${errorText}`)
+  }
+
+  const result: FirecrawlResponse = await response.json()
+
+  if (!result.success || !result.data) {
+    throw new Error('Failed to scrape page: ' + (result.error || 'Unknown error'))
+  }
+
+  return processFirecrawlData([result.data] as any)
+}
+
+// Process Firecrawl response data into our format
+function processFirecrawlData(data: any[]): ScrapedPage[] {
+  const scrapedPages: ScrapedPage[] = []
+
+  for (const page of data) {
+    // Extract content - prefer markdown, fallback to content
+    const content = page.markdown || page.content || ''
+    
+    // Skip pages with very little content
+    if (content.length < 100) {
+      continue
+    }
+
+    const scrapedPage: ScrapedPage = {
+      url: page.metadata?.sourceURL || page.url || '',
+      title: page.metadata?.title || 'Untitled Page',
+      content: content,
+      description: page.metadata?.description || undefined,
+      keywords: page.metadata?.keywords ? 
+        (typeof page.metadata.keywords === 'string' ? 
+          page.metadata.keywords.split(',').map((k: string) => k.trim()) : 
+          page.metadata.keywords) : 
+        undefined
+    }
+
+    scrapedPages.push(scrapedPage)
+  }
+
+  console.log(`Processed ${scrapedPages.length} pages from Firecrawl data`)
+  return scrapedPages
 }
 
 export async function POST(request: NextRequest) {
@@ -186,7 +225,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`Starting scrape job for website ${websiteId}: ${url}`)
+    console.log(`Starting Firecrawl scrape job for website ${websiteId}: ${url}`)
 
     const supabase = createServerClient()
 
@@ -199,8 +238,12 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', websiteId)
 
-    // Perform the scraping
-    const scrapedPages = await scrapeWebsite(url)
+    // Perform the scraping with Firecrawl
+    const scrapedPages = await scrapeWithFirecrawl(url)
+    
+    if (scrapedPages.length === 0) {
+      throw new Error('No content could be extracted from the website')
+    }
     
     // Process and combine content
     const combinedContent = {
@@ -218,7 +261,7 @@ export async function POST(request: NextRequest) {
       .update({
         status: 'ready',
         scraped_content: combinedContent,
-        // title: scrapedPages[0]?.title || 'Untitled Website',
+        title: scrapedPages[0]?.title || null,
         description: scrapedPages[0]?.description || null,
         updated_at: new Date().toISOString()
       })
@@ -228,16 +271,17 @@ export async function POST(request: NextRequest) {
       throw updateError
     }
 
-    console.log(`Scraping completed for website ${websiteId}`)
+    console.log(`Firecrawl scraping completed for website ${websiteId}`)
 
     return NextResponse.json({ 
       success: true, 
       pagesScraped: scrapedPages.length,
-      websiteId 
+      websiteId,
+      method: 'firecrawl'
     })
 
   } catch (error: any) {
-    console.error('Scraping error:', error)
+    console.error('Firecrawl scraping error:', error)
 
     // Update website status to error
     try {
@@ -258,7 +302,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: error.message },
+      { 
+        error: error.message || 'Failed to scrape website',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     )
   }

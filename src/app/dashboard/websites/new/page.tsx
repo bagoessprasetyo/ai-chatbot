@@ -29,15 +29,15 @@ const isValidUrl = (url: string): boolean => {
   }
 };
 
-type ScrapingStatus2 = 'idle' | 'creating' | 'pending' | 'scraping' | 'processing' | 'error' | 'ready';
+type ScrapingStatus = 'idle' | 'creating' | 'pending' | 'scraping' | 'processing' | 'error' | 'ready';
 
 interface ScrapingProgress {
-  status: ScrapingStatus2
+  status: ScrapingStatus
   message: string
   progress: number
 }
 
-const getProgressInfo = (status: ScrapingStatus2): ScrapingProgress => {
+const getProgressInfo = (status: ScrapingStatus): ScrapingProgress => {
   switch (status) {
     case 'idle':
       return { status, message: 'Ready to start', progress: 0 }
@@ -67,12 +67,15 @@ export default function NewWebsitePage() {
     description: ""
   });
   const [error, setError] = useState<string | null>(null);
-  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus2>('idle');
+  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>('idle');
   const [websiteId, setWebsiteId] = useState<string | null>(null);
   const [chatbotId, setChatbotId] = useState<string | null>(null);
 
   const progressInfo = getProgressInfo(scrapingStatus);
-  const isProcessing = !['idle', 'ready', 'error','ready'].includes(scrapingStatus);
+  const isProcessing = scrapingStatus === 'creating' || 
+                     scrapingStatus === 'pending' || 
+                     scrapingStatus === 'scraping' || 
+                     scrapingStatus === 'processing';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
