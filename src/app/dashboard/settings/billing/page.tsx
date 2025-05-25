@@ -1,4 +1,5 @@
-// src/app/dashboard/settings/billing/page.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// src/app/dashboard/settings/billing/page.tsx - Updated for Polar.sh
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -12,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   Crown, 
   Check, 
-  Zap, 
   Globe, 
   Bot, 
   MessageSquare, 
@@ -21,26 +21,101 @@ import {
   Clock,
   Calendar,
   TrendingUp,
-  AlertTriangle,
-  ExternalLink
-} from 'lucide-react'
-import Link from 'next/link'
+  AlertTriangle} from 'lucide-react'
 import { useSubscription } from '@/contexts/SubscriptionContext'
 import { createClient } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
+// import { useAuth } from '@/hooks/useAuth'
+
+interface PolarPlan {
+  id: string
+  name: string
+  price: number
+  features: string[]
+  limits: {
+    websites: number
+    chatbots: number
+    monthlyConversations: number
+  }
+  is_popular: boolean
+}
+
+const POLAR_PLANS: PolarPlan[] = [
+  {
+    id: 'free',
+    name: 'Free Trial',
+    price: 0,
+    features: [
+      'Basic analytics',
+      'Email support',
+      '14-day trial',
+      'Custom branding'
+    ],
+    limits: {
+      websites: 1,
+      chatbots: 1,
+      monthlyConversations: 100
+    },
+    is_popular: false
+  },
+  {
+    id: 'starter',
+    name: 'Starter',
+    price: 2900,
+    features: [
+      'Advanced analytics',
+      'Priority support',
+      'Custom branding',
+      'Email notifications'
+    ],
+    limits: {
+      websites: 1,
+      chatbots: 2,
+      monthlyConversations: 500
+    },
+    is_popular: false
+  },
+  {
+    id: 'professional',
+    name: 'Professional',
+    price: 7900,
+    features: [
+      'Premium analytics',
+      'API access',
+      'Custom integrations',
+      'Priority support',
+      'Advanced features'
+    ],
+    limits: {
+      websites: 3,
+      chatbots: 5,
+      monthlyConversations: 2000
+    },
+    is_popular: true
+  },
+  // {
+  //   id: 'business',
+  //   name: 'Business',
+  //   price: 19900,
+  //   features: [
+  //     'Enterprise analytics',
+  //     'Full API access',
+  //     'Dedicated support',
+  //     'SLA guarantee',
+  //     'White-label option',
+  //     'Custom integrations'
+  //   ],
+  //   limits: {
+  //     websites: 10,
+  //     chatbots: 20,
+  //     monthlyConversations: 10000
+  //   },
+  //   is_popular: false
+  // }
+]
 
 interface PricingCardProps {
-  plan: {
-    id: string
-    name: string
-    price: number
-    features: string[]
-    limits: {
-      websites: number
-      chatbots: number
-      monthlyConversations: number
-    }
-    is_popular: boolean
-  }
+  plan: PolarPlan
   currentPlan?: boolean
   onUpgrade: (planId: string) => void
   loading: boolean
@@ -120,7 +195,7 @@ const PricingCard = ({ plan, currentPlan = false, onUpgrade, loading }: PricingC
           disabled={currentPlan || loading}
           variant={currentPlan ? "outline" : plan.is_popular ? "default" : "outline"}
         >
-          {currentPlan ? 'Current Plan' : 'Upgrade'}
+          {currentPlan ? 'Current Plan' : loading ? 'Processing...' : 'Upgrade'}
         </Button>
       </CardFooter>
     </Card>
@@ -175,6 +250,7 @@ const UsageMetric = ({ label, used, limit, icon, formatValue = (v) => v.toString
 }
 
 export default function BillingSettingsPage() {
+  const { user } = useAuth()
   const {
     subscription,
     loading,
@@ -182,72 +258,112 @@ export default function BillingSettingsPage() {
     isTrialActive,
     getTrialDaysRemaining,
     refreshSubscription
-  } = useSubscription()
+} = useSubscription()
 
-  const [plans, setPlans] = useState<any[]>([])
-  const [billingHistory, setBillingHistory] = useState<any[]>([])
+const [billingHistory, setBillingHistory] = useState<any[]>([])
   const [upgradeLoading, setUpgradeLoading] = useState(false)
 
   useEffect(() => {
-    fetchPlans()
     fetchBillingHistory()
+    handleCheckoutResult()
   }, [])
 
-  const fetchPlans = async () => {
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('subscription_plans')
-        .select('*')
-        .eq('is_active', true)
-        .order('price', { ascending: true })
+  const handleCheckoutResult = () => {
+    if (typeof window === 'undefined') return
+    
+    const urlParams = new URLSearchParams(window.location.search)
+    const success = urlParams.get('success')
+    const canceled = urlParams.get('canceled')
+    const plan = urlParams.get('plan')
 
-      if (error) throw error
-      setPlans(data || [])
-    } catch (error) {
-      console.error('Error fetching plans:', error)
+    if (success === 'true') {
+      alert(`Successfully upgraded to ${plan} plan! Your subscription is now active.`)
+      refreshSubscription()
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname)
+    } else if (canceled === 'true') {
+      alert('Checkout was cancelled. You can try again anytime.')
+      // Clean URL  
+      window.history.replaceState({}, document.title, window.location.pathname)
     }
   }
 
   const fetchBillingHistory = async () => {
+    if (!user) return
+    
     try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('billing_history')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      if (error) throw error
-      setBillingHistory(data || [])
+      const response = await fetch('/api/user/billing-history')
+      if (response.ok) {
+        const data = await response.json()
+        setBillingHistory(data || [])
+      }
     } catch (error) {
       console.error('Error fetching billing history:', error)
     }
   }
 
   const handleUpgrade = async (planId: string) => {
+    if (!user) {
+      alert('Please sign in to upgrade your plan')
+      return
+    }
+
     setUpgradeLoading(true)
     try {
-      // In a real app, this would integrate with Stripe
-      // For now, we'll just show a message
-      alert(`Upgrade to ${plans.find(p => p.id === planId)?.name} plan would be processed here with Stripe integration.`)
-    } catch (error) {
+      const response = await fetch('/api/create-polar-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          planId,
+          userId: user.id
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Redirect to Polar.sh checkout
+        window.location.href = data.url
+      } else {
+        throw new Error(data.error || 'Failed to create checkout session')
+      }
+    } catch (error: any) {
       console.error('Error upgrading plan:', error)
+      alert(`Error: ${error.message}`)
     } finally {
       setUpgradeLoading(false)
     }
   }
 
   const handleCancelSubscription = async () => {
+    if (!user || !subscription?.id) {
+      alert('No active subscription found')
+      return
+    }
+
     if (!confirm('Are you sure you want to cancel your subscription? You will lose access to premium features at the end of your billing period.')) {
       return
     }
 
     try {
-      // In a real app, this would update via Stripe webhook
-      alert('Subscription cancellation would be processed here.')
+      // For now, we'll update the local database to mark as cancelled
+      // In production, you'd integrate with Polar.sh API to cancel
+      const supabase = createClient()
+      await supabase
+        .from('subscriptions')
+        .update({ 
+          cancel_at_period_end: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+
+      await refreshSubscription()
+      alert('Subscription will be cancelled at the end of the current billing period.')
     } catch (error) {
       console.error('Error cancelling subscription:', error)
+      alert('Failed to cancel subscription. Please try again.')
     }
   }
 
@@ -271,7 +387,7 @@ export default function BillingSettingsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Billing & Subscription</h1>
           <p className="text-muted-foreground">
-            Manage your subscription plan and billing information
+            Manage your subscription plan and billing information via Polar.sh
           </p>
         </div>
         {subscription && (
@@ -314,14 +430,17 @@ export default function BillingSettingsPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="font-semibold">{subscription.plan_name}</h3>
+                    <h3 className="font-semibold">{getCurrentPlan()}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {subscription.status === 'trialing' ? 'Free Trial' : `$${(plans.find(p => p.id === subscription.plan_id)?.price / 100 || 0)}/month`}
+                      {subscription.status === 'trialing' ? 'Free Trial' : 
+                       subscription.plan_id === 'starter' ? '$29/month' :
+                       subscription.plan_id === 'professional' ? '$79/month' : 'Active'}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">
-                      {subscription.status === 'trialing' ? 'Trial' : 'Active'}
+                      {subscription.status === 'trialing' ? 'Trial' : 
+                       subscription.status === 'active' ? 'Active' : subscription.status}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {subscription.status === 'trialing' 
@@ -349,9 +468,9 @@ export default function BillingSettingsPage() {
                       Cancel Subscription
                     </Button>
                     <Button variant="outline" size="sm" asChild>
-                      <a href="#" target="_blank" rel="noopener noreferrer">
+                      <a href="https://polar.sh" target="_blank" rel="noopener noreferrer">
                         <CreditCard className="w-4 h-4 mr-2" />
-                        Manage Payment Method
+                        Manage in Polar.sh
                       </a>
                     </Button>
                   </div>
@@ -363,8 +482,8 @@ export default function BillingSettingsPage() {
           {/* Pricing Plans */}
           <div>
             <h2 className="mb-6 text-2xl font-bold">Choose Your Plan</h2>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {plans.map((plan) => (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {POLAR_PLANS.map((plan) => (
                 <PricingCard
                   key={plan.id}
                   plan={plan}
@@ -373,6 +492,11 @@ export default function BillingSettingsPage() {
                   loading={upgradeLoading}
                 />
               ))}
+            </div>
+            <div className="p-4 mt-6 border border-blue-200 rounded-lg bg-blue-50">
+              <p className="text-sm text-blue-800">
+                <strong>Powered by Polar.sh</strong> - Secure payments and subscription management for developers
+              </p>
             </div>
           </div>
         </TabsContent>
@@ -393,22 +517,22 @@ export default function BillingSettingsPage() {
                 <>
                   <UsageMetric
                     label="Websites"
-                    used={subscription.websites_used}
-                    limit={subscription.websites_limit}
+                    used={subscription.websites_used || 0}
+                    limit={subscription.websites_limit || 1}
                     icon={<Globe className="w-4 h-4 text-green-600" />}
                   />
                   
                   <UsageMetric
                     label="Chatbots"
-                    used={subscription.chatbots_used}
-                    limit={subscription.chatbots_limit}
+                    used={subscription.chatbots_used || 0}
+                    limit={subscription.chatbots_limit || 1}
                     icon={<Bot className="w-4 h-4 text-purple-600" />}
                   />
                   
                   <UsageMetric
                     label="Conversations"
-                    used={subscription.monthly_conversations_used}
-                    limit={subscription.monthly_conversations_limit}
+                    used={subscription.monthly_conversations_used || 0}
+                    limit={subscription.monthly_conversations_limit || 100}
                     icon={<MessageSquare className="w-4 h-4 text-blue-600" />}
                     formatValue={(v) => v.toLocaleString()}
                   />
@@ -426,7 +550,7 @@ export default function BillingSettingsPage() {
                 Billing History
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                View and download your past invoices
+                View your past invoices and payments
               </p>
             </CardHeader>
             <CardContent>
@@ -444,7 +568,7 @@ export default function BillingSettingsPage() {
                     <div key={invoice.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
                         <p className="font-medium">
-                          Invoice #{invoice.stripe_invoice_id?.slice(-8)}
+                          Invoice #{invoice.polar_order_id?.slice(-8) || invoice.id.slice(-8)}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           {new Date(invoice.created_at).toLocaleDateString()} • ${(invoice.amount_paid / 100).toFixed(2)}
