@@ -165,7 +165,7 @@ export function UsageDisplay() {
                 </div>
               </div>
               <Button size="sm" asChild>
-                <Link href="/dashboard/settings?tab=billing">
+                <Link href="/dashboard/settings/billing">
                   Upgrade
                 </Link>
               </Button>
@@ -228,7 +228,7 @@ export function UpgradePrompt({ trigger = 'website', onClose }: UpgradePromptPro
             
             <div className="flex items-center gap-3">
               <Button asChild className="flex-1">
-                <Link href="/dashboard/settings?tab=billing">
+                <Link href="/dashboard/settings/billing">
                   <Zap className="w-4 h-4 mr-2" />
                   Upgrade Now
                 </Link>

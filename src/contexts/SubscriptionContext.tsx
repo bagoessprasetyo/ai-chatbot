@@ -10,9 +10,13 @@ export interface SubscriptionData {
   id: string
   user_id: string
   plan_id: string
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   status: 'active' | 'cancelled' | 'past_due' | 'unpaid' | 'trialing'
   trial_start: string | null
   trial_end: string | null
+  current_period_end: string | null
+  cancel_at_period_end: boolean
   monthly_conversations_limit: number
   monthly_conversations_used: number
   websites_limit: number

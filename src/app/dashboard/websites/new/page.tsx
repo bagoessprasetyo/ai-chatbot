@@ -1,471 +1,460 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-// src/app/dashboard/websites/new/page.tsx
+// src/app/dashboard/websites/new/page.tsx - WITH PROPER LIMIT CHECKING
 'use client'
 
-import * as React from "react";
-import { useState } from "react";
-import { Globe, Check, AlertCircle, ArrowLeft, Loader2, Plus, Bot } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { createClient } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
-import { scrapingService } from "@/lib/scraping-service";
-
-const isValidUrl = (url: string): boolean => {
-  try {
-    // Add protocol if missing
-    const urlWithProtocol = url.match(/^https?:\/\//) ? url : `https://${url}`;
-    new URL(urlWithProtocol);
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-type ScrapingStatus = 'idle' | 'creating' | 'pending' | 'scraping' | 'processing' | 'error' | 'ready';
-
-interface ScrapingProgress {
-  status: ScrapingStatus
-  message: string
-  progress: number
-}
-
-const getProgressInfo = (status: ScrapingStatus): ScrapingProgress => {
-  switch (status) {
-    case 'idle':
-      return { status, message: 'Ready to start', progress: 0 }
-    case 'creating':
-      return { status, message: 'Creating website record...', progress: 10 }
-    case 'pending':
-      return { status, message: 'Preparing to scrape website...', progress: 20 }
-    case 'scraping':
-      return { status, message: 'Analyzing website content...', progress: 50 }
-    case 'processing':
-      return { status, message: 'Generating AI chatbot...', progress: 80 }
-    case 'ready':
-      return { status, message: 'Chatbot ready!', progress: 100 }
-    case 'error':
-      return { status, message: 'Something went wrong', progress: 0 }
-    default:
-      return { status: 'idle', message: 'Ready to start', progress: 0 }
-  }
-}
+import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
+import { 
+  AlertTriangle, 
+  ArrowLeft, 
+  Globe, 
+  Lock, 
+  Crown,
+  Loader2,
+  CheckCircle
+} from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
+import { useSubscription } from '@/contexts/SubscriptionContext'
+import { createClient } from '@/lib/supabase'
+import { toast } from 'sonner'
+import Link from 'next/link'
 
 export default function NewWebsitePage() {
-  const { user } = useAuth();
-  const router = useRouter();
-  const [formData, setFormData] = useState({
-    url: "",
-    title: "",
-    description: ""
-  });
-  const [error, setError] = useState<string | null>(null);
-  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>('idle');
-  const [websiteId, setWebsiteId] = useState<string | null>(null);
-  const [chatbotId, setChatbotId] = useState<string | null>(null);
+  const router = useRouter()
+  const { user } = useAuth()
+  const { 
+    subscription, 
+    loading: subscriptionLoading, 
+    canCreateWebsite, 
+    refreshSubscription,
+    getCurrentPlan,
+    getUsagePercentage
+  } = useSubscription()
 
-  const progressInfo = getProgressInfo(scrapingStatus);
-  const isProcessing = scrapingStatus === 'creating' || 
-                     scrapingStatus === 'pending' || 
-                     scrapingStatus === 'scraping' || 
-                     scrapingStatus === 'processing';
+  const [formData, setFormData] = useState({
+    url: '',
+    title: '',
+    description: ''
+  })
+  const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // Check limits on component mount
+  useEffect(() => {
+    const checkLimits = async () => {
+      if (!subscriptionLoading && !canCreateWebsite()) {
+        toast.error("Website limit reached", {
+          description: "You've reached your website limit. Upgrade to add more websites.",
+          duration: 5000,
+          action: {
+            label: "Upgrade",
+            onClick: () => router.push("/dashboard/settings?tab=billing")
+          }
+        })
+      }
+    }
+
+    if (user && !subscriptionLoading) {
+      checkLimits()
+    }
+  }, [user, subscriptionLoading, canCreateWebsite])
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
+
+    if (!formData.url.trim()) {
+      newErrors.url = 'Website URL is required'
+    } else {
+      try {
+        new URL(formData.url)
+      } catch {
+        newErrors.url = 'Please enter a valid URL'
+      }
+    }
+
+    if (!formData.title.trim()) {
+      newErrors.title = 'Website title is required'
+    }
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    
-    // Validate URL
-    if (!formData.url.trim()) {
-      setError("Please enter a website URL");
-      return;
+    e.preventDefault()
+
+    // First check if user can create website
+    if (!canCreateWebsite()) {
+      toast.error("Cannot create website", {
+        description: "You've reached your website limit. Please upgrade your plan.",
+        action: {
+          label: "Upgrade",
+          onClick: () => router.push("/dashboard/settings?tab=billing")
+        }
+      })
+      return
     }
-    
-    // Check if URL is valid
-    if (!isValidUrl(formData.url)) {
-      setError("Please enter a valid website URL");
-      return;
+
+    if (!validateForm()) {
+      toast.error("Please fix the form errors")
+      return
     }
-    
-    if (!user) {
-      setError("You must be logged in to add a website");
-      return;
-    }
-    
-    setScrapingStatus('creating');
-    
+
+    setLoading(true)
+
     try {
-      const supabase = createClient();
-      
-      // Format URL with protocol if missing
-      const formattedUrl = formData.url.match(/^https?:\/\//) ? formData.url : `https://${formData.url}`;
-      
-      // Check if website already exists for this user (fixed)
-      const { data: existing, error: checkError } = await supabase
-        .from('websites')
-        .select('id')
-        .eq('url', formattedUrl)
-        .eq('user_id', user.id)
-        .maybeSingle(); // Use maybeSingle() instead of single()
-      
-      // Only throw error if it's not a "no rows" error
-      if (checkError && checkError.code !== 'PGRST116') {
-        throw checkError;
+      const supabase = createClient()
+
+      // Check one more time before creating (in case of race conditions)
+      const canCreate = await supabase.rpc('can_create_website', { 
+        user_uuid: user?.id 
+      })
+
+      if (!canCreate.data) {
+        throw new Error('Website creation limit reached. Please upgrade your plan.')
       }
-      
-      if (existing) {
-        setError("This website is already added to your account");
-        setScrapingStatus('idle');
-        return;
-      }
-      
-      // Insert new website
-      const { data, error: insertError } = await supabase
+
+      const { data, error } = await supabase
         .from('websites')
         .insert({
-          user_id: user.id,
-          url: formattedUrl,
-          title: formData.title.trim() || null,
-          description: formData.description.trim() || null,
+          user_id: user?.id,
+          url: formData.url.trim(),
+          title: formData.title.trim(),
+          description: formData.description.trim(),
           status: 'pending'
         })
         .select()
-        .single();
-      
-      if (insertError) throw insertError;
-      
-      const newWebsiteId = data.id;
-      setWebsiteId(newWebsiteId);
-      
-      // Start scraping process
-      const result = await scrapingService.scrapeWebsite({
-        websiteId: newWebsiteId,
-        url: formattedUrl,
-        onStatusUpdate: setScrapingStatus
-      });
-      
-      if (result.success) {
-        setChatbotId(result.chatbotId || null);
-        setScrapingStatus('ready');
-      } else {
-        setError(result.error || 'Failed to process website');
-        setScrapingStatus('error');
+        .single()
+
+      if (error) {
+        // Handle specific database trigger errors
+        if (error.message.includes('Website creation limit reached')) {
+          toast.error("Website limit reached", {
+            description: "Upgrade your plan to create more websites",
+            action: {
+              label: "Upgrade",
+              onClick: () => router.push("/dashboard/settings?tab=billing")
+            }
+          })
+          return
+        }
+        throw error
       }
-      
+
+      // Refresh subscription data to update usage counts
+      await refreshSubscription()
+
+      toast.success("Website created successfully!", {
+        description: "Your website is being processed and will be ready soon."
+      })
+
+      router.push(`/dashboard/websites/${data.id}`)
+
     } catch (error: any) {
-      console.error('Error adding website:', error);
-      setError(error.message || "Failed to add website. Please try again.");
-      setScrapingStatus('error');
+      console.error('Error creating website:', error)
+      
+      if (error.message.includes('limit reached') || error.message.includes('Upgrade')) {
+        toast.error("Website limit reached", {
+          description: error.message,
+          action: {
+            label: "Upgrade",
+            onClick: () => router.push("/dashboard/settings?tab=billing")
+          }
+        })
+      } else {
+        toast.error("Failed to create website", {
+          description: error.message || "Please try again"
+        })
+      }
+    } finally {
+      setLoading(false)
     }
-  };
+  }
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError(null);
-  };
-
-  const handleViewChatbot = () => {
-    if (websiteId) {
-      router.push(`/dashboard/websites/${websiteId}/chatbot`);
+    setFormData(prev => ({ ...prev, [field]: value }))
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }))
     }
-  };
+  }
 
-  const handleAddAnother = () => {
-    setFormData({ url: '', title: '', description: '' });
-    setError(null);
-    setScrapingStatus('idle');
-    setWebsiteId(null);
-    setChatbotId(null);
-  };
-
-  // Success state
-  if (scrapingStatus === 'ready') {
+  // Show loading state while checking subscription
+  if (subscriptionLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/dashboard/websites">
-              <ArrowLeft className="w-4 h-4" />
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/dashboard">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
             </Link>
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Website Added Successfully!</h1>
-            <p className="text-muted-foreground">
-              Your AI chatbot is ready to help your visitors
-            </p>
-          </div>
         </div>
-
-        <Card className="max-w-2xl">
-          <CardContent className="pt-6">
-            <div className="space-y-4 text-center">
-              <div className="flex items-center justify-center w-16 h-16 p-3 mx-auto bg-green-100 rounded-full">
-                <Check className="w-8 h-8 text-green-600" />
-              </div>
-              <h2 className="text-xl font-semibold">Chatbot Created Successfully!</h2>
-              <p className="text-muted-foreground">
-                We have analyzed your website and created an intelligent chatbot that can answer 
-                questions about your content.
-              </p>
-              
-              <div className="flex justify-center gap-3 pt-4">
-                <Button onClick={handleViewChatbot}>
-                  <Bot className="w-4 h-4 mr-2" />
-                  Configure Chatbot
-                </Button>
-                <Button variant="outline" onClick={handleAddAnother}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Another Website
-                </Button>
-                <Button variant="ghost" asChild>
-                  <Link href="/dashboard/websites">
-                    View All Websites
-                  </Link>
-                </Button>
-              </div>
-            </div>
+        
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin" />
+            <p>Loading your subscription details...</p>
           </CardContent>
         </Card>
       </div>
-    );
+    )
   }
+
+  const websiteUsage = getUsagePercentage('websites')
+  const isAtLimit = !canCreateWebsite()
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild disabled={isProcessing}>
-          <Link href="/dashboard/websites">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Add New Website</h1>
-          <p className="text-muted-foreground">
-            Connect your website to create an AI-powered chatbot
-          </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/dashboard">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Add New Website</h1>
+            <p className="text-muted-foreground">
+              Connect your website to create an AI chatbot
+            </p>
+          </div>
         </div>
+        
+        {subscription && (
+          <div className="text-right">
+            <Badge variant="outline">{getCurrentPlan()}</Badge>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {subscription.websites_used} / {subscription.websites_limit === -1 ? '∞' : subscription.websites_limit} websites used
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main Form */}
-        <div className="lg:col-span-2">
-          {/* Progress Card */}
-          {isProcessing && (
-            <Card className="mb-6">
-              <CardContent className="pt-6">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                    <div className="flex-1">
-                      <h3 className="font-medium">{progressInfo.message}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        This may take a few minutes...
-                      </p>
-                    </div>
-                    <span className="text-sm font-medium">{progressInfo.progress}%</span>
-                  </div>
-                  <Progress value={progressInfo.progress} />
-                </div>
-              </CardContent>
-            </Card>
-          )}
+      {/* Limit Warning */}
+      {isAtLimit && (
+        <Alert className="border-red-200 bg-red-50">
+          <Lock className="w-4 h-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <strong>Website limit reached!</strong>
+                <br />
+                You've used all {subscription?.websites_limit} of your website slots. 
+                Upgrade your plan to add more websites.
+              </div>
+              <Link href="/dashboard/settings?tab=billing">
+                <Button size="sm" variant="destructive">
+                  <Crown className="w-4 h-4 mr-2" />
+                  Upgrade Plan
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Website Information</CardTitle>
-              <CardDescription>
-                Enter your website details to get started with AI chatbot creation
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* URL Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="url" className="text-sm font-medium">
-                    Website URL *
-                  </Label>
-                  <div className="flex rounded-md shadow-sm">
-                    <span className="inline-flex items-center px-3 text-sm border border-r-0 rounded-l-md border-input bg-muted text-muted-foreground">
-                      <Globe className="w-4 h-4 mr-1" />
-                      https://
-                    </span>
-                    <Input
-                      id="url"
-                      value={formData.url}
-                      onChange={(e) => handleInputChange('url', e.target.value)}
-                      className="rounded-l-none"
-                      placeholder="example.com"
-                      aria-invalid={!!error}
-                      disabled={isProcessing}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Enter your website URL (e.g., example.com or www.example.com)
-                  </p>
-                </div>
+      {/* Usage Warning */}
+      {!isAtLimit && websiteUsage >= 80 && (
+        <Alert className="border-orange-200 bg-orange-50">
+          <AlertTriangle className="w-4 h-4 text-orange-600" />
+          <AlertDescription className="text-orange-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <strong>Approaching website limit</strong>
+                <br />
+                You're using {websiteUsage.toFixed(0)}% of your website quota. 
+                Consider upgrading to avoid hitting limits.
+              </div>
+              <Link href="/dashboard/settings?tab=billing">
+                <Button size="sm" variant="outline">
+                  View Plans
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
-                {/* Title Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="title" className="text-sm font-medium">
-                    Website Title
-                  </Label>
-                  <Input
-                    id="title"
-                    value={formData.title}
-                    onChange={(e) => handleInputChange('title', e.target.value)}
-                    placeholder="My Awesome Website"
-                    disabled={isProcessing}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Optional: A custom name for your website (will be auto-detected if left empty)
-                  </p>
-                </div>
+      {/* Usage Progress */}
+      {subscription && subscription.websites_limit !== -1 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">Website Usage</span>
+              <span className="text-sm text-muted-foreground">
+                {subscription.websites_used} / {subscription.websites_limit}
+              </span>
+            </div>
+            <Progress 
+              value={websiteUsage} 
+              className={`h-2 ${
+                isAtLimit ? '[&>div]:bg-red-500' : 
+                websiteUsage >= 80 ? '[&>div]:bg-orange-500' : 
+                '[&>div]:bg-green-500'
+              }`}
+            />
+          </CardContent>
+        </Card>
+      )}
 
-                {/* Description Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="description" className="text-sm font-medium">
-                    Description
-                  </Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => handleInputChange('description', e.target.value)}
-                    placeholder="Brief description of your website..."
-                    rows={3}
-                    disabled={isProcessing}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Optional: Describe what your website is about to help improve chatbot responses
-                  </p>
-                </div>
+      {/* Form */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="w-5 h-5" />
+            Website Details
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="url">Website URL *</Label>
+              <Input
+                id="url"
+                type="url"
+                placeholder="https://example.com"
+                value={formData.url}
+                onChange={(e) => handleInputChange('url', e.target.value)}
+                disabled={loading || isAtLimit}
+                className={errors.url ? 'border-red-500' : ''}
+              />
+              {errors.url && (
+                <p className="text-sm text-red-600">{errors.url}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Enter the full URL of your website (including https://)
+              </p>
+            </div>
 
-                {/* Error Message */}
-                {error && (
-                  <div className="flex items-center gap-2 p-3 text-sm text-red-600 border border-red-200 rounded-md bg-red-50">
-                    <AlertCircle className="w-4 h-4" />
-                    {error}
-                  </div>
+            <div className="space-y-2">
+              <Label htmlFor="title">Website Title *</Label>
+              <Input
+                id="title"
+                placeholder="My Awesome Website"
+                value={formData.title}
+                onChange={(e) => handleInputChange('title', e.target.value)}
+                disabled={loading || isAtLimit}
+                className={errors.title ? 'border-red-500' : ''}
+              />
+              {errors.title && (
+                <p className="text-sm text-red-600">{errors.title}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                A descriptive name for your website
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                placeholder="Brief description of your website..."
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                disabled={loading || isAtLimit}
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional: Describe what your website is about
+              </p>
+            </div>
+
+            <div className="flex gap-4">
+              <Button
+                type="submit"
+                disabled={loading || isAtLimit}
+                className="flex-1"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating Website...
+                  </>
+                ) : isAtLimit ? (
+                  <>
+                    <Lock className="w-4 h-4 mr-2" />
+                    Limit Reached
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Create Website
+                  </>
                 )}
-
-                {/* Submit Button */}
-                <div className="flex gap-3 pt-4">
-                  <Button 
-                    type="submit" 
-                    disabled={isProcessing}
-                    className="flex-1"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {progressInfo.message}
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Website & Create Chatbot
-                      </>
-                    )}
-                  </Button>
-                  <Button type="button" variant="outline" asChild disabled={isProcessing}>
-                    <Link href="/dashboard/websites">
-                      Cancel
-                    </Link>
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Sidebar Info */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">What happens next?</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-3">
-                <div className={`rounded-full p-1 mt-0.5 ${
-                  ['creating', 'pending', 'scraping', 'processing', 'ready'].includes(scrapingStatus) 
-                    ? 'bg-blue-100' : 'bg-gray-100'
-                }`}>
-                  <div className={`h-2 w-2 rounded-full ${
-                    ['creating', 'pending', 'scraping', 'processing', 'ready'].includes(scrapingStatus)
-                      ? 'bg-blue-600' : 'bg-gray-400'
-                  }`} />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Website Analysis</p>
-                  <p className="text-xs text-muted-foreground">
-                    We will automatically scan and analyze your website content
-                  </p>
-                </div>
-              </div>
+              </Button>
               
-              <div className="flex gap-3">
-                <div className={`rounded-full p-1 mt-0.5 ${
-                  ['processing', 'ready'].includes(scrapingStatus) 
-                    ? 'bg-blue-100' : 'bg-gray-100'
-                }`}>
-                  <div className={`h-2 w-2 rounded-full ${
-                    ['processing', 'ready'].includes(scrapingStatus)
-                      ? 'bg-blue-600' : 'bg-gray-400'
-                  }`} />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">AI Training</p>
-                  <p className="text-xs text-muted-foreground">
-                    Generate intelligent responses based on your content
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <div className={`rounded-full p-1 mt-0.5 ${
-                  scrapingStatus === 'ready' ? 'bg-green-100' : 'bg-gray-100'
-                }`}>
-                  <div className={`h-2 w-2 rounded-full ${
-                    scrapingStatus === 'ready' ? 'bg-green-600' : 'bg-gray-400'
-                  }`} />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Chatbot Ready</p>
-                  <p className="text-xs text-muted-foreground">
-                    Get embed code to add chatbot to your website
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              <Button type="button" variant="outline" asChild>
+                <Link href="/dashboard">
+                  Cancel
+                </Link>
+              </Button>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Requirements</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Check className="w-4 h-4 text-green-600" />
-                <span>Public website (not password protected)</span>
+            {isAtLimit && (
+              <div className="p-4 text-center rounded-lg bg-gray-50">
+                <p className="mb-2 text-sm text-gray-600">
+                  Need more websites? Upgrade your plan to continue.
+                </p>
+                <Link href="/dashboard/settings?tab=billing">
+                  <Button size="sm">
+                    <Crown className="w-4 h-4 mr-2" />
+                    View Upgrade Options
+                  </Button>
+                </Link>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Check className="w-4 h-4 text-green-600" />
-                <span>Valid SSL certificate (HTTPS)</span>
+            )}
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Plan Comparison */}
+      {isAtLimit && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Upgrade for More Websites</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="p-4 border rounded-lg">
+                <h3 className="font-semibold">Starter</h3>
+                <p className="text-2xl font-bold">$19/month</p>
+                <p className="text-sm text-muted-foreground">5 websites</p>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Check className="w-4 h-4 text-green-600" />
-                <span>Accessible content (not heavily JavaScript-dependent)</span>
+              <div className="p-4 border border-blue-500 rounded-lg bg-blue-50">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold">Professional</h3>
+                  <Badge>Popular</Badge>
+                </div>
+                <p className="text-2xl font-bold">$49/month</p>
+                <p className="text-sm text-muted-foreground">25 websites</p>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              <div className="p-4 border rounded-lg">
+                <h3 className="font-semibold">Enterprise</h3>
+                <p className="text-2xl font-bold">$99/month</p>
+                <p className="text-sm text-muted-foreground">Unlimited websites</p>
+              </div>
+            </div>
+            <div className="mt-4 text-center">
+              <Link href="/dashboard/settings?tab=billing">
+                <Button>
+                  Compare All Plans
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
-  );
+  )
 }
