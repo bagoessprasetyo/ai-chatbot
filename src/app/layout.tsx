@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
+import { AlertProvider } from "@/components/ui/alert-dialog-component";
+import { Toaster } from "sonner";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -29,9 +31,22 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SubscriptionProvider>
-          {children}
-        </SubscriptionProvider>
+        <AlertProvider>
+          <SubscriptionProvider>
+            {children}
+            <Toaster 
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  color: '#0f172a',
+                },
+              }}
+            />
+          </SubscriptionProvider>
+        </AlertProvider>
       </body>
     </html>
   );

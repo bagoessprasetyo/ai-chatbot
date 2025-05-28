@@ -1,7 +1,6 @@
-// src/app/api/chatbots/[id]/config/route.ts
+// src/app/api/chatbots/[id]/config/route.ts - Fixed version
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase'
-import { cookies } from 'next/headers'
 
 export async function PUT(
   request: NextRequest,
@@ -18,8 +17,9 @@ export async function PUT(
       )
     }
 
+    console.log('Updating chatbot config:', { chatbotId, config, name })
+
     // Create Supabase client with user session
-    const cookieStore = cookies()
     const supabase = createClient()
 
     // Get the current user
@@ -38,6 +38,7 @@ export async function PUT(
       .select(`
         id,
         name,
+        config,
         websites!inner (
           user_id
         )
@@ -60,11 +61,17 @@ export async function PUT(
       )
     }
 
+    // Merge the new config with existing config to preserve all properties
+    const existingConfig = chatbot.config || {}
+    const updatedConfig = { ...existingConfig, ...config }
+
+    console.log('Merging config:', { existingConfig, newConfig: config, updatedConfig })
+
     // Update the chatbot configuration
     const { error: updateError } = await supabase
       .from('chatbots')
       .update({
-        config: config,
+        config: updatedConfig,
         name: name || chatbot.name,
         updated_at: new Date().toISOString()
       })
@@ -78,8 +85,14 @@ export async function PUT(
       )
     }
 
+    console.log('Chatbot config updated successfully')
+
     return NextResponse.json(
-      { success: true, message: 'Chatbot configuration updated successfully' },
+      { 
+        success: true, 
+        message: 'Chatbot configuration updated successfully',
+        config: updatedConfig
+      },
       { status: 200 }
     )
 
@@ -150,10 +163,30 @@ export async function GET(
       )
     }
 
+    // Ensure complete config with defaults
+    const defaultConfig = {
+      theme: 'default',
+      position: 'bottom-right',
+      primary_color: '#3B82F6',
+      secondary_color: '#EFF6FF',
+      text_color: '#1F2937',
+      background_color: '#FFFFFF',
+      border_radius: 12,
+      avatar_style: 'bot',
+      avatar_icon: '🤖',
+      welcome_message: `Hello! I'm here to help you with any questions about ${chatbot.websites[0]?.title || 'our website'}. How can I assist you today?`,
+      placeholder_text: 'Type your message...',
+      animation_style: 'none',
+      bubble_style: 'modern',
+      show_branding: true
+    }
+
+    const config = { ...defaultConfig, ...chatbot.config }
+
     return NextResponse.json({
       id: chatbot.id,
       name: chatbot.name,
-      config: chatbot.config,
+      config: config,
       is_active: chatbot.is_active,
       website: {
         title: chatbot.websites[0]?.title,

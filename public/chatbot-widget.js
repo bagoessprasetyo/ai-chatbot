@@ -1,9 +1,10 @@
-// public/chatbot-widget.js
+// public/chatbot-widget.js - Improved version
 (function() {
   'use strict';
 
   // Prevent multiple instances
   if (window.WebBotAILoaded) {
+    console.log('WebBot AI: Widget already loaded');
     return;
   }
   window.WebBotAILoaded = true;
@@ -19,6 +20,8 @@
   const websiteId = currentScript.getAttribute('data-website-id');
   const origin = currentScript.getAttribute('data-origin') || window.location.origin;
 
+  console.log('WebBot AI: Initializing widget', { chatbotId, websiteId, origin });
+
   if (!chatbotId || !websiteId) {
     console.error('WebBot AI: Missing required attributes data-chatbot-id or data-website-id');
     return;
@@ -28,13 +31,17 @@
   function createWidget() {
     // Check if widget already exists
     if (document.getElementById('webbot-ai-widget')) {
+      console.log('WebBot AI: Widget already exists');
       return;
     }
+
+    console.log('WebBot AI: Creating widget iframe');
 
     // Create iframe
     const iframe = document.createElement('iframe');
     iframe.id = 'webbot-ai-widget';
     iframe.src = `${origin}/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
+    iframe.title = 'WebBot AI Chat Widget';
     
     // Iframe styles - make it invisible initially
     iframe.style.cssText = `
@@ -53,15 +60,14 @@
 
     // Handle iframe load
     iframe.onload = function() {
+      console.log('WebBot AI: Widget iframe loaded successfully');
       // Make iframe visible and enable pointer events
       iframe.style.opacity = '1';
       iframe.style.pointerEvents = 'auto';
-      
-      console.log('WebBot AI: Widget loaded successfully');
     };
 
     iframe.onerror = function() {
-      console.error('WebBot AI: Failed to load widget');
+      console.error('WebBot AI: Failed to load widget iframe');
     };
 
     // Add iframe to document
@@ -90,16 +96,22 @@
       }
 
       // Handle different message types
-      switch (event.data.type) {
-        case 'webbot-resize':
-          // Handle dynamic resizing if needed
-          break;
-        case 'webbot-ready':
-          console.log('WebBot AI: Widget ready');
-          break;
-        default:
-          // Unknown message type
-          break;
+      if (event.data && typeof event.data === 'object') {
+        switch (event.data.type) {
+          case 'webbot-resize':
+            // Handle dynamic resizing if needed
+            console.log('WebBot AI: Resize request received');
+            break;
+          case 'webbot-ready':
+            console.log('WebBot AI: Widget ready');
+            break;
+          case 'webbot-error':
+            console.error('WebBot AI: Widget error', event.data.error);
+            break;
+          default:
+            // Unknown message type
+            break;
+        }
       }
     });
 
@@ -141,6 +153,11 @@
           height: 100vh !important;
         }
       }
+      
+      /* Ensure the widget doesn't interfere with host site styles */
+      #webbot-ai-widget * {
+        box-sizing: border-box;
+      }
     `;
 
     document.head.appendChild(style);
@@ -157,6 +174,7 @@
     
     // Method to manually trigger widget reload
     reload: function() {
+      console.log('WebBot AI: Reloading widget');
       const existingWidget = document.getElementById('webbot-ai-widget');
       if (existingWidget) {
         existingWidget.remove();
@@ -166,6 +184,7 @@
     
     // Method to remove widget
     destroy: function() {
+      console.log('WebBot AI: Destroying widget');
       const existingWidget = document.getElementById('webbot-ai-widget');
       if (existingWidget) {
         existingWidget.remove();
@@ -175,7 +194,22 @@
         existingStyles.remove();
       }
       window.WebBotAILoaded = false;
+    },
+    
+    // Method to check if widget is loaded
+    isLoaded: function() {
+      return !!document.getElementById('webbot-ai-widget');
+    },
+    
+    // Method to open/close widget programmatically
+    toggle: function() {
+      const iframe = document.getElementById('webbot-ai-widget');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'webbot-toggle' }, origin);
+      }
     }
   };
+
+  console.log('WebBot AI: Widget script initialized successfully');
 
 })();

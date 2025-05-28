@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// src/app/dashboard/chatbots/page.tsx
+// src/app/dashboard/chatbots/page.tsx - Updated with AlertDialog components
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -36,7 +36,9 @@ import { createClient } from '@/lib/supabase'
 import { handleError } from '@/lib/api-utils'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { toast } from 'sonner'
+// import { showAlert } from '@/components/ui/alert-dialog-components'
 import Link from 'next/link'
+import { showAlert } from '@/components/ui/alert-dialog-component'
 
 interface ChatbotConfig {
   theme: 'default' | 'minimal' | 'modern' | 'rounded' | 'floating'
@@ -184,24 +186,38 @@ function ChatbotsPageContent() {
     try {
       const supabase = createClient()
       
-      // Use RPC function to avoid CORS issues
+      console.log('Toggling chatbot status:', { chatbotId, isActive })
+      
+      // Use RPC function for reliable operation
       const { data, error } = await supabase.rpc('toggle_chatbot_status', {
         chatbot_id: chatbotId,
         new_status: isActive
       })
 
-      if (error) throw error
-      
-      console.log('RPC success:', data)
+      console.log('RPC response:', { data, error })
 
+      if (error) {
+        console.error('RPC error:', error)
+        throw new Error(error.message || 'Failed to update chatbot status')
+      }
+
+      if (data && !data.success) {
+        throw new Error(data.error || 'Failed to update chatbot status')
+      }
+
+      // Update local state
       setChatbots(prev => prev.map(bot => 
         bot.id === chatbotId ? { ...bot, is_active: isActive } : bot
       ))
 
       toast.success(`Chatbot ${isActive ? 'activated' : 'deactivated'}`)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error toggling chatbot:', error)
-      toast.error(handleError(error, 'Failed to update chatbot status'))
+      // Show error alert instead of toast for important errors
+      showAlert.error(
+        'Failed to Update Chatbot', 
+        error.message || 'There was an issue updating your chatbot status. Please try again.'
+      )
     }
   }
 
@@ -216,18 +232,31 @@ function ChatbotsPageContent() {
 
     setSaving(true)
     try {
-      const supabase = createClient()
-      
       // Extract name from welcome message or keep existing name
       const newName = editingConfig.welcome_message.split('!')[0] || selectedChatbot.name
       
-      const { error } = await supabase.rpc('update_chatbot_config', {
-        chatbot_id: selectedChatbot.id,
-        new_name: newName,
-        new_config: editingConfig
+      console.log('Saving config:', { chatbotId: selectedChatbot.id, config: editingConfig, name: newName })
+      
+      // Use the standard API endpoint for config updates
+      const response = await fetch(`/api/chatbots/${selectedChatbot.id}/config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          config: editingConfig,
+          name: newName
+        })
       })
 
-      if (error) throw error
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Config save error:', errorData)
+        throw new Error(errorData.error || 'Failed to save configuration')
+      }
+
+      const result = await response.json()
+      console.log('Configuration saved successfully:', result)
 
       // Update local state
       setChatbots(prev => prev.map(bot => 
@@ -239,33 +268,57 @@ function ChatbotsPageContent() {
       toast.success('Chatbot customization saved!')
       setShowCustomizeDialog(false)
       setSelectedChatbot(null)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving config:', error)
-      toast.error(handleError(error, 'Failed to save customization'))
+      showAlert.error(
+        'Failed to Save Configuration',
+        error.message || 'There was an issue saving your chatbot configuration. Please try again.'
+      )
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeleteChatbot = async (chatbotId: string) => {
-    if (!confirm('Are you sure you want to delete this chatbot? This action cannot be undone.')) {
-      return
-    }
+    const chatbot = chatbots.find(bot => bot.id === chatbotId)
+    const chatbotName = chatbot?.name || 'this chatbot'
 
     try {
-      const supabase = createClient()
-      
-      const { error } = await supabase.rpc('delete_chatbot', {
-        chatbot_id: chatbotId
-      })
+      await showAlert.delete(
+        'Delete Chatbot',
+        `Are you sure you want to delete "${chatbotName}"? This will permanently remove the chatbot and all its conversation history. This action cannot be undone.`,
+        async () => {
+          const supabase = createClient()
+          
+          console.log('Deleting chatbot:', chatbotId)
+          
+          // Use RPC function for reliable operation
+          const { data, error } = await supabase.rpc('delete_chatbot', {
+            chatbot_id: chatbotId
+          })
 
-      if (error) throw error
+          console.log('Delete RPC response:', { data, error })
 
-      setChatbots(prev => prev.filter(bot => bot.id !== chatbotId))
-      toast.success('Chatbot deleted successfully')
-    } catch (error) {
+          if (error) {
+            console.error('RPC error:', error)
+            throw new Error(error.message || 'Failed to delete chatbot')
+          }
+
+          if (data && !data.success) {
+            throw new Error(data.error || 'Failed to delete chatbot')
+          }
+
+          // Update local state
+          setChatbots(prev => prev.filter(bot => bot.id !== chatbotId))
+          toast.success('Chatbot deleted successfully')
+        }
+      )
+    } catch (error: any) {
       console.error('Error deleting chatbot:', error)
-      toast.error(handleError(error, 'Failed to delete chatbot'))
+      showAlert.error(
+        'Failed to Delete Chatbot',
+        error.message || 'There was an issue deleting your chatbot. Please try again.'
+      )
     }
   }
 
@@ -283,7 +336,15 @@ function ChatbotsPageContent() {
 
   const copyEmbedCode = (chatbot: Chatbot) => {
     navigator.clipboard.writeText(generateEmbedCode(chatbot))
-    toast.success('Embed code copied to clipboard!')
+      .then(() => {
+        toast.success('Embed code copied to clipboard!')
+      })
+      .catch(() => {
+        showAlert.error(
+          'Copy Failed',
+          'Unable to copy embed code to clipboard. Please copy it manually from the embed tab.'
+        )
+      })
   }
 
   const ChatbotPreview = ({ config }: { config: ChatbotConfig }) => (

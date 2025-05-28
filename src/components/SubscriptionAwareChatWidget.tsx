@@ -1,49 +1,30 @@
+// src/components/SubscriptionAwareChatWidget.tsx
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { 
-  Bot, 
-  Send, 
-  X, 
-  MessageCircle, 
-  AlertTriangle, 
-  Zap,
-  ExternalLink
-} from 'lucide-react'
+import { Send, X, Minimize2, Maximize2 } from 'lucide-react'
 
 interface ChatMessage {
-  id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: string
 }
 
-interface ChatConfig {
-  id: string
-  name: string
+interface ChatbotConfig {
+  theme: 'default' | 'minimal' | 'modern' | 'rounded' | 'floating'
+  position: 'bottom-right' | 'bottom-left' | 'bottom-center'
+  primary_color: string
+  secondary_color: string
+  text_color: string
+  background_color: string
+  border_radius: number
+  avatar_style: 'bot' | 'circle' | 'square' | 'custom'
+  avatar_icon: string
   welcome_message: string
-  theme: string
-  position: 'bottom-right' | 'bottom-left'
-  website_id: string
-  website_title: string
-  website_url: string
-}
-
-interface SubscriptionInfo {
-  plan_id: string
-  status: string
-  trial_end?: string
-}
-
-interface UsageInfo {
-  used: number
-  limit: number
-  remaining: number
+  placeholder_text: string
+  animation_style: 'none' | 'bounce' | 'pulse' | 'fade'
+  bubble_style: 'modern' | 'classic' | 'minimal'
+  show_branding: boolean
 }
 
 interface SubscriptionAwareChatWidgetProps {
@@ -56,89 +37,118 @@ export default function SubscriptionAwareChatWidget({
   websiteId 
 }: SubscriptionAwareChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [config, setConfig] = useState<ChatConfig | null>(null)
+  const [isMinimized, setIsMinimized] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [config, setConfig] = useState<ChatbotConfig | null>(null)
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
-  const [error, setError] = useState<string | null>(null)
-  const [limitReached, setLimitReached] = useState(false)
-  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null)
-  const [usage, setUsage] = useState<UsageInfo | null>(null)
+  
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
+  // Fetch chatbot configuration
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  // Load chatbot configuration
-  useEffect(() => {
-    const loadConfig = async () => {
+    const fetchConfig = async () => {
       try {
         const response = await fetch(`/api/chatbot-config?chatbotId=${chatbotId}`)
-        const data = await response.json()
-        
         if (response.ok) {
-          setConfig(data)
+          const data = await response.json()
+          
+          // Build complete config object with all properties
+          const chatbotConfig: ChatbotConfig = {
+            theme: data.theme || 'default',
+            position: data.position || 'bottom-right',
+            primary_color: data.config?.primary_color || '#3B82F6',
+            secondary_color: data.config?.secondary_color || '#EFF6FF',
+            text_color: data.config?.text_color || '#1F2937',
+            background_color: data.config?.background_color || '#FFFFFF',
+            border_radius: data.config?.border_radius || 12,
+            avatar_style: data.config?.avatar_style || 'bot',
+            avatar_icon: data.config?.avatar_icon || '🤖',
+            welcome_message: data.welcome_message || 'Hello! How can I help you today?',
+            placeholder_text: data.config?.placeholder_text || 'Type your message...',
+            animation_style: data.config?.animation_style || 'none',
+            bubble_style: data.config?.bubble_style || 'modern',
+            show_branding: data.config?.show_branding !== false
+          }
+          
+          setConfig(chatbotConfig)
+          
+          // Add welcome message
+          setMessages([{
+            role: 'assistant',
+            content: chatbotConfig.welcome_message,
+            timestamp: new Date().toISOString()
+          }])
         } else {
-          setError('Failed to load chatbot configuration')
+          console.error('Failed to fetch chatbot config:', response.status)
+          useDefaultConfig()
         }
-      } catch (err) {
-        console.error('Error loading config:', err)
-        setError('Failed to initialize chatbot')
+      } catch (error) {
+        console.error('Failed to fetch chatbot config:', error)
+        useDefaultConfig()
       }
     }
 
-    if (chatbotId) {
-      loadConfig()
+    const useDefaultConfig = () => {
+      const defaultConfig: ChatbotConfig = {
+        theme: 'default',
+        position: 'bottom-right',
+        primary_color: '#3B82F6',
+        secondary_color: '#EFF6FF',
+        text_color: '#1F2937',
+        background_color: '#FFFFFF',
+        border_radius: 12,
+        avatar_style: 'bot',
+        avatar_icon: '🤖',
+        welcome_message: 'Hello! How can I help you today?',
+        placeholder_text: 'Type your message...',
+        animation_style: 'none',
+        bubble_style: 'modern',
+        show_branding: true
+      }
+      
+      setConfig(defaultConfig)
+      setMessages([{
+        role: 'assistant',
+        content: defaultConfig.welcome_message,
+        timestamp: new Date().toISOString()
+      }])
     }
+
+    fetchConfig()
   }, [chatbotId])
 
-  // Load conversation history
+  // Auto scroll to bottom
   useEffect(() => {
-    const loadHistory = async () => {
-      if (!config) return
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
-      try {
-        const response = await fetch(`/api/chat?chatbotId=${chatbotId}&sessionId=${sessionId}`)
-        const data = await response.json()
-        
-        if (response.ok && data.conversationHistory) {
-          setMessages(data.conversationHistory)
-        }
-      } catch (err) {
-        console.error('Error loading conversation history:', err)
-      }
+  // Focus input when opened
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      setTimeout(() => inputRef.current?.focus(), 100)
     }
-
-    loadHistory()
-  }, [config, chatbotId, sessionId])
+  }, [isOpen, isMinimized])
 
   const sendMessage = async () => {
     if (!inputValue.trim() || isLoading || !config) return
 
     const userMessage: ChatMessage = {
-      id: `user_${Date.now()}`,
       role: 'user',
-      content: inputValue,
+      content: inputValue.trim(),
       timestamp: new Date().toISOString()
     }
 
     setMessages(prev => [...prev, userMessage])
     setInputValue('')
     setIsLoading(true)
-    setError(null)
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chatbotId,
           message: userMessage.content,
@@ -150,239 +160,319 @@ export default function SubscriptionAwareChatWidget({
       const data = await response.json()
 
       if (response.ok) {
-        const aiMessage: ChatMessage = {
-          id: `ai_${Date.now()}`,
+        const assistantMessage: ChatMessage = {
           role: 'assistant',
           content: data.message,
           timestamp: new Date().toISOString()
         }
-
-        setMessages(prev => [...prev, aiMessage])
-        
-        // Update usage information
-        if (data.usage) {
-          setUsage(data.usage)
-        }
-        
-        if (data.subscription) {
-          setSubscriptionInfo(data.subscription)
-        }
-
-        // Check if approaching limit
-        if (data.usage && data.usage.remaining <= 5) {
-          setError(`Only ${data.usage.remaining} conversations remaining this month`)
-        }
-
+        setMessages(prev => [...prev, assistantMessage])
       } else {
-        // Handle different error types
+        // Handle different error types with styled error messages
+        let errorContent = "I'm sorry, I'm having trouble responding right now. Please try again in a moment."
+        
         if (data.type === 'limit_exceeded') {
-          setLimitReached(true)
-          setUsage(data.usage)
-          setError('Monthly conversation limit reached. Upgrade your plan to continue.')
+          errorContent = "I'm sorry, but the monthly conversation limit has been reached. Please contact the website owner to upgrade their plan for continued service."
         } else if (data.type === 'trial_expired') {
-          setLimitReached(true)
-          setError('Free trial has expired. Upgrade to continue using the service.')
+          errorContent = "I'm sorry, but the free trial has expired. Please contact the website owner to activate their subscription."
         } else if (data.type === 'subscription_inactive') {
-          setLimitReached(true)
-          setError('Subscription is not active. Please update your payment method.')
-        } else {
-          setError(data.error || 'Failed to send message')
+          errorContent = "I'm sorry, but the subscription is not active. Please contact the website owner to update their payment method."
         }
+
+        const errorMessage: ChatMessage = {
+          role: 'assistant',
+          content: errorContent,
+          timestamp: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, errorMessage])
       }
-    } catch (err) {
-      console.error('Error sending message:', err)
-      setError('Network error. Please try again.')
+    } catch (error) {
+      console.error('Chat error:', error)
+      const errorMessage: ChatMessage = {
+        role: 'assistant',
+        content: "I'm sorry, I'm having trouble connecting right now. Please try again later.",
+        timestamp: new Date().toISOString()
+      }
+      setMessages(prev => [...prev, errorMessage])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    sendMessage()
-  }
-
-  const handleUpgrade = () => {
-    // Open upgrade page in new tab
-    window.open('/dashboard/settings/billing', '_blank')
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
   }
 
   if (!config) {
-    return null
+    return (
+      <div className="fixed bottom-5 right-5 z-[999999]">
+        <div className="w-14 h-14 bg-gray-200 rounded-full animate-pulse"></div>
+      </div>
+    )
   }
 
-  return (
-    <div className={`fixed z-50 ${config.position === 'bottom-right' ? 'bottom-5 right-5' : 'bottom-5 left-5'}`}>
-      {/* Chat Toggle Button */}
-      {!isOpen && (
-        <Button
-          onClick={() => setIsOpen(true)}
-          size="lg"
-          className="transition-all duration-200 bg-blue-600 rounded-full shadow-lg w-14 h-14 hover:shadow-xl hover:bg-blue-700"
-        >
-          <MessageCircle className="w-6 h-6" />
-        </Button>
-      )}
+  // Position styles
+  const getPositionStyles = () => {
+    const base = 'fixed z-[999999]'
+    switch (config.position) {
+      case 'bottom-left':
+        return `${base} bottom-5 left-5`
+      case 'bottom-center':
+        return `${base} bottom-5 left-1/2 transform -translate-x-1/2`
+      case 'bottom-right':
+      default:
+        return `${base} bottom-5 right-5`
+    }
+  }
 
-      {/* Chat Window */}
-      {isOpen && (
-        <Card className="w-96 h-[500px] shadow-2xl border-0 flex flex-col">
-          {/* Header */}
-          <CardHeader className="p-4 text-white bg-blue-600 rounded-t-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Avatar className="w-8 h-8">
-                  <AvatarFallback className="text-white bg-blue-500">
-                    <Bot className="w-4 h-4" />
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <CardTitle className="text-lg">{config.name}</CardTitle>
-                  {subscriptionInfo?.status === 'trialing' && (
-                    <Badge variant="secondary" className="text-xs text-orange-800 bg-orange-100">
-                      Trial
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsOpen(false)}
-                className="text-white hover:bg-blue-700"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </CardHeader>
+  // Avatar styles
+  const getAvatarStyle = () => {
+    const baseSize = 'w-8 h-8 flex items-center justify-center text-white'
+    switch (config.avatar_style) {
+      case 'square':
+        return `${baseSize} rounded-lg`
+      case 'circle':
+        return `${baseSize} rounded-full`
+      default:
+        return `${baseSize} rounded-xl`
+    }
+  }
 
+  // Animation classes
+  const getAnimationClass = () => {
+    switch (config.animation_style) {
+      case 'bounce':
+        return 'animate-bounce'
+      case 'pulse':
+        return 'animate-pulse'
+      case 'fade':
+        return 'animate-pulse'
+      default:
+        return ''
+    }
+  }
+
+  // Bubble styles with proper styling
+  const getBubbleStyle = (isUser: boolean) => {
+    const baseStyle = 'max-w-[75%] px-4 py-2 text-sm break-words'
+    
+    if (isUser) {
+      return `${baseStyle} rounded-t-2xl rounded-bl-2xl rounded-br-sm text-white`
+    }
+
+    switch (config.bubble_style) {
+      case 'classic':
+        return `${baseStyle} rounded-2xl border`
+      case 'minimal':
+        return `${baseStyle} rounded-lg border`
+      case 'modern':
+      default:
+        return `${baseStyle} rounded-t-2xl rounded-br-2xl rounded-bl-sm`
+    }
+  }
+
+  const FloatingButton = () => (
+    <button
+      onClick={() => setIsOpen(true)}
+      className={`
+        w-14 h-14 shadow-lg transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2
+        flex items-center justify-center
+        ${getAnimationClass()}
+      `}
+      style={{ 
+        backgroundColor: config.primary_color,
+        borderRadius: config.avatar_style === 'square' ? '12px' : 
+                     config.avatar_style === 'circle' ? '50%' : '16px',
+        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
+      }}
+      aria-label="Open chat"
+    >
+      <span className="text-2xl">{config.avatar_icon}</span>
+    </button>
+  )
+
+  const ChatWindow = () => (
+    <div 
+      className={`
+        bg-white shadow-2xl transition-all duration-300 ease-in-out overflow-hidden
+        ${isMinimized ? 'h-16' : 'h-96 w-80'}
+        ${config.theme === 'minimal' ? 'border border-gray-200' : ''}
+      `}
+      style={{ 
+        backgroundColor: config.background_color,
+        borderRadius: `${config.border_radius}px`,
+        boxShadow: '0 25px 50px rgba(0, 0, 0, 0.15)'
+      }}
+    >
+      {/* Header */}
+      <div 
+        className="flex items-center justify-between p-4 border-b border-white/20"
+        style={{ 
+          backgroundColor: config.primary_color,
+          color: 'white',
+          borderTopLeftRadius: `${config.border_radius}px`,
+          borderTopRightRadius: `${config.border_radius}px`
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div 
+            className={getAvatarStyle()}
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.2)' }}
+          >
+            <span className="text-lg text-white">
+              {config.avatar_icon}
+            </span>
+          </div>
+          <span className="font-medium text-sm">AI Assistant</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsMinimized(!isMinimized)}
+            className="p-1.5 hover:bg-white/20 rounded transition-colors"
+            aria-label={isMinimized ? "Maximize chat" : "Minimize chat"}
+          >
+            {isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="p-1.5 hover:bg-white/20 rounded transition-colors"
+            aria-label="Close chat"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {!isMinimized && (
+        <>
           {/* Messages */}
-          <CardContent className="flex-1 p-4 space-y-4 overflow-y-auto">
-            {/* Welcome Message */}
-            {messages.length === 0 && config.welcome_message && (
-              <div className="flex gap-3">
-                <Avatar className="w-8 h-8 shrink-0">
-                  <AvatarFallback>
-                    <Bot className="w-4 h-4" />
-                  </AvatarFallback>
-                </Avatar>
-                <div className="bg-gray-100 rounded-lg px-3 py-2 max-w-[80%]">
-                  <p className="text-sm">{config.welcome_message}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Chat Messages */}
-            {messages.map((message) => (
+          <div className="flex-1 p-4 overflow-y-auto h-64 space-y-4 bg-gradient-to-b from-gray-50/30 to-transparent">
+            {messages.map((message, index) => (
               <div
-                key={message.id}
-                className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                key={index}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <Avatar className="w-8 h-8 shrink-0">
-                  <AvatarFallback>
-                    {message.role === 'user' ? 'You' : <Bot className="w-4 h-4" />}
-                  </AvatarFallback>
-                </Avatar>
                 <div
-                  className={`rounded-lg px-3 py-2 max-w-[80%] text-sm ${
-                    message.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}
+                  className={getBubbleStyle(message.role === 'user')}
+                  style={{
+                    backgroundColor: message.role === 'user' 
+                      ? config.primary_color 
+                      : config.secondary_color,
+                    color: message.role === 'user' 
+                      ? 'white' 
+                      : config.text_color,
+                    borderColor: message.role === 'user' 
+                      ? config.primary_color 
+                      : '#E5E7EB',
+                    boxShadow: message.role === 'user' 
+                      ? 'none' 
+                      : '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  }}
                 >
                   {message.content}
                 </div>
               </div>
             ))}
-
-            {/* Loading indicator */}
+            
             {isLoading && (
-              <div className="flex gap-3">
-                <Avatar className="w-8 h-8 shrink-0">
-                  <AvatarFallback>
-                    <Bot className="w-4 h-4" />
-                  </AvatarFallback>
-                </Avatar>
-                <div className="px-3 py-2 bg-gray-100 rounded-lg">
+              <div className="flex justify-start">
+                <div
+                  className={getBubbleStyle(false)}
+                  style={{
+                    backgroundColor: config.secondary_color,
+                    color: config.text_color,
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  }}
+                >
                   <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div 
+                      className="w-2 h-2 rounded-full animate-bounce"
+                      style={{ backgroundColor: config.primary_color, opacity: 0.6 }}
+                    ></div>
+                    <div 
+                      className="w-2 h-2 rounded-full animate-bounce"
+                      style={{ 
+                        backgroundColor: config.primary_color, 
+                        opacity: 0.6,
+                        animationDelay: '0.1s' 
+                      }}
+                    ></div>
+                    <div 
+                      className="w-2 h-2 rounded-full animate-bounce"
+                      style={{ 
+                        backgroundColor: config.primary_color, 
+                        opacity: 0.6,
+                        animationDelay: '0.2s' 
+                      }}
+                    ></div>
                   </div>
                 </div>
               </div>
             )}
-
-            {/* Error Message */}
-            {error && (
-              <div className="p-3 border border-red-200 rounded-lg bg-red-50">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5" />
-                  <div className="text-sm text-red-800">
-                    <p>{error}</p>
-                    {limitReached && (
-                      <div className="mt-2 space-y-2">
-                        {usage && (
-                          <p className="text-xs">
-                            {usage.used} / {usage.limit} conversations used this month
-                          </p>
-                        )}
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={handleUpgrade} className="text-xs h-7">
-                            <Zap className="w-3 h-3 mr-1" />
-                            Upgrade Plan
-                          </Button>
-                          <Button variant="outline" size="sm" asChild className="text-xs h-7">
-                            <a href={config.website_url} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="w-3 h-3 mr-1" />
-                              Visit Site
-                            </a>
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
+            
             <div ref={messagesEndRef} />
-          </CardContent>
+          </div>
 
           {/* Input */}
-          <div className="p-4 border-t">
-            {/* Usage Warning */}
-            {usage && usage.remaining <= 10 && usage.remaining > 0 && !limitReached && (
-              <div className="p-2 mb-3 text-xs text-orange-800 border border-orange-200 rounded bg-orange-50">
-                <div className="flex items-center justify-between">
-                  <span>{usage.remaining} conversations remaining</span>
-                  <Button size="sm" variant="ghost" onClick={handleUpgrade} className="h-6 text-xs">
-                    Upgrade
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="flex gap-2">
-              <Input
+          <div className="p-4 border-t border-gray-100" style={{ backgroundColor: config.background_color }}>
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={limitReached ? "Upgrade to continue..." : "Type your message..."}
-                className="flex-1"
-                disabled={isLoading || limitReached}
+                onKeyPress={handleKeyPress}
+                placeholder={config.placeholder_text}
+                disabled={isLoading}
+                className="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all"
+                style={{ 
+                  borderColor: '#E5E7EB',
+                  color: config.text_color,
+                  backgroundColor: 'white',
+                  borderRadius: `${Math.min(config.border_radius, 8)}px`
+                }}
               />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!inputValue.trim() || isLoading || limitReached}
-                className="px-3"
+              <button
+                onClick={sendMessage}
+                disabled={!inputValue.trim() || isLoading}
+                className="p-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                style={{ 
+                  backgroundColor: config.primary_color,
+                  borderRadius: `${Math.min(config.border_radius, 8)}px`
+                }}
+                aria-label="Send message"
               >
-                <Send className="w-4 h-4" />
-              </Button>
-            </form>
+                <Send size={16} className="text-white" />
+              </button>
+            </div>
+            
+            {config.show_branding && (
+              <div className="mt-2 text-center">
+                <span className="text-xs" style={{ color: '#9CA3AF' }}>
+                  Powered by{' '}
+                  <a 
+                    href="https://webbot.ai" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="hover:underline transition-colors"
+                    style={{ color: config.primary_color }}
+                  >
+                    WebBot AI
+                  </a>
+                </span>
+              </div>
+            )}
           </div>
-        </Card>
+        </>
       )}
+    </div>
+  )
+
+  return (
+    <div className={getPositionStyles()}>
+      {isOpen ? <ChatWindow /> : <FloatingButton />}
     </div>
   )
 }
