@@ -1,4 +1,4 @@
-// src/app/dashboard/websites/new/page.tsx - WITH PROPER LIMIT CHECKING
+// src/app/dashboard/websites/new/page.tsx - FIXED VERSION
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -23,6 +23,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useSubscription } from '@/contexts/SubscriptionContext'
 import { createClient } from '@/lib/supabase'
+import { scrapingService } from '@/lib/scraping-service'
 import { toast } from 'sonner'
 import Link from 'next/link'
 
@@ -45,6 +46,11 @@ export default function NewWebsitePage() {
   })
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // NEW: Scraping progress state
+  const [scrapingStatus, setScrapingStatus] = useState<'idle' | 'creating' | 'scraping' | 'processing' | 'complete' | 'error'>('idle')
+  const [scrapingProgress, setScrapingProgress] = useState(0)
+  const [websiteId, setWebsiteId] = useState<string | null>(null)
 
   // Check limits on component mount
   useEffect(() => {
@@ -87,6 +93,7 @@ export default function NewWebsitePage() {
     return Object.keys(newErrors).length === 0
   }
 
+  // NEW: Auto-scraping workflow
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -108,6 +115,8 @@ export default function NewWebsitePage() {
     }
 
     setLoading(true)
+    setScrapingStatus('creating')
+    setScrapingProgress(10)
 
     try {
       const supabase = createClient()
@@ -121,7 +130,10 @@ export default function NewWebsitePage() {
         throw new Error('Website creation limit reached. Please upgrade your plan.')
       }
 
-      const { data, error } = await supabase
+      setScrapingProgress(20)
+
+      // Step 1: Create website in database
+      const { data: website, error } = await supabase
         .from('websites')
         .insert({
           user_id: user?.id,
@@ -148,17 +160,67 @@ export default function NewWebsitePage() {
         throw error
       }
 
-      // Refresh subscription data to update usage counts
-      await refreshSubscription()
+      setWebsiteId(website.id)
+      setScrapingProgress(30)
+      setScrapingStatus('scraping')
 
+      // Step 2: Automatically start scraping process
       toast.success("Website created successfully!", {
-        description: "Your website is being processed and will be ready soon."
+        description: "Now starting content analysis..."
       })
 
-      router.push(`/dashboard/websites/${data.id}`)
+      // Start the scraping workflow
+      const scrapingResult = await scrapingService.scrapeWebsite({
+        websiteId: website.id,
+        url: formData.url.trim(),
+        onStatusUpdate: (status) => {
+          console.log('Scraping status update:', status)
+          switch (status) {
+            case 'scraping':
+              setScrapingStatus('scraping')
+              setScrapingProgress(50)
+              break
+            case 'processing':
+              setScrapingStatus('processing')
+              setScrapingProgress(80)
+              break
+            case 'ready':
+              setScrapingStatus('complete')
+              setScrapingProgress(100)
+              break
+            case 'error':
+              setScrapingStatus('error')
+              break
+          }
+        }
+      })
+
+      if (scrapingResult.success) {
+        setScrapingStatus('complete')
+        setScrapingProgress(100)
+        
+        // Refresh subscription data to update usage counts
+        await refreshSubscription()
+
+        toast.success("Website setup complete!", {
+          description: `Analyzed ${scrapingResult.pagesScraped} pages. Your chatbot is ready!`
+        })
+
+        // Wait a moment to show completion, then redirect
+        setTimeout(() => {
+          router.push(`/dashboard/websites/${website.id}`)
+        }, 2000)
+
+      } else {
+        setScrapingStatus('error')
+        toast.error("Content analysis failed", {
+          description: scrapingResult.error || "Please try again or contact support"
+        })
+      }
 
     } catch (error: any) {
       console.error('Error creating website:', error)
+      setScrapingStatus('error')
       
       if (error.message.includes('limit reached') || error.message.includes('Upgrade')) {
         toast.error("Website limit reached", {
@@ -212,12 +274,30 @@ export default function NewWebsitePage() {
   const websiteUsage = getUsagePercentage('websites')
   const isAtLimit = !canCreateWebsite()
 
+  // NEW: Progress display
+  const getProgressMessage = () => {
+    switch (scrapingStatus) {
+      case 'creating':
+        return 'Creating website...'
+      case 'scraping':
+        return 'Analyzing website content...'
+      case 'processing':
+        return 'Setting up AI chatbot...'
+      case 'complete':
+        return 'Setup complete! Redirecting...'
+      case 'error':
+        return 'Setup failed. Please try again.'
+      default:
+        return ''
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" asChild>
+          <Button variant="ghost" size="sm" asChild disabled={loading}>
             <Link href="/dashboard">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Dashboard
@@ -240,6 +320,23 @@ export default function NewWebsitePage() {
           </div>
         )}
       </div>
+
+      {/* NEW: Progress indicator */}
+      {loading && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4 mb-4">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              <div>
+                <h3 className="font-medium text-blue-900">Setting up your website</h3>
+                <p className="text-sm text-blue-700">{getProgressMessage()}</p>
+              </div>
+            </div>
+            <Progress value={scrapingProgress} className="h-2" />
+            <p className="mt-2 text-xs text-blue-600">{scrapingProgress}% complete</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Limit Warning */}
       {isAtLimit && (
@@ -379,7 +476,10 @@ export default function NewWebsitePage() {
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating Website...
+                    {scrapingStatus === 'creating' ? 'Creating...' : 
+                     scrapingStatus === 'scraping' ? 'Analyzing...' : 
+                     scrapingStatus === 'processing' ? 'Setting up...' : 
+                     'Processing...'}
                   </>
                 ) : isAtLimit ? (
                   <>
@@ -389,17 +489,33 @@ export default function NewWebsitePage() {
                 ) : (
                   <>
                     <CheckCircle className="w-4 h-4 mr-2" />
-                    Create Website
+                    Create & Analyze Website
                   </>
                 )}
               </Button>
               
-              <Button type="button" variant="outline" asChild>
+              <Button type="button" variant="outline" asChild disabled={loading}>
                 <Link href="/dashboard">
                   Cancel
                 </Link>
               </Button>
             </div>
+
+            {/* NEW: Process explanation */}
+            {!isAtLimit && (
+              <div className="p-4 text-sm rounded-lg bg-gray-50">
+                <h4 className="font-medium mb-2">What happens next?</h4>
+                <ol className="space-y-1 text-gray-600 list-decimal list-inside">
+                  <li>We'll create your website entry</li>
+                  <li>Analyze and extract content from your website</li>
+                  <li>Generate an AI assistant trained on your content</li>
+                  <li>Set up your chatbot and embed code</li>
+                </ol>
+                <p className="mt-2 text-xs text-gray-500">
+                  This process typically takes 1-3 minutes depending on your website size.
+                </p>
+              </div>
+            )}
 
             {isAtLimit && (
               <div className="p-4 text-center rounded-lg bg-gray-50">
@@ -418,7 +534,7 @@ export default function NewWebsitePage() {
         </CardContent>
       </Card>
 
-      {/* Plan Comparison */}
+      {/* Plan Comparison - only show when at limit */}
       {isAtLimit && (
         <Card>
           <CardHeader>
