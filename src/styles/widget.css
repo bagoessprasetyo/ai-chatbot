@@ -1,0 +1,29 @@
+/* // Add this CSS to your widget component or create a global CSS file */
+/* // src/styles/widget.css or add to your main CSS */
+
+/* Make the root container transparent */
+html, body {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure the Next.js root div is transparent */
+#__next {
+  background: transparent !important;
+}
+
+/* Widget container should be transparent when closed */
+.widget-container {
+  background: transparent !important;
+}
+
+/* Only the chat window should have background, not the floating button area */
+.chat-window {
+  background: white;
+  border-radius: 16px;
+}
+
+.floating-button {
+  background: transparent !important;
+}

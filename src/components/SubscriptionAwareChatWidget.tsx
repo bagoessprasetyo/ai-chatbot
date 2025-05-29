@@ -863,8 +863,18 @@ export default function SubscriptionAwareChatWidget({
     </div>
   )
 
+  // Add transparent background styles
+  useEffect(() => {
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+    const nextRoot = document.getElementById('__next')
+    if (nextRoot) {
+      nextRoot.style.background = 'transparent'
+    }
+  }, [])
+
   return (
-    <div className={positionStyles}>
+    <div className={positionStyles} style={{ background: 'transparent' }}>
       {isOpen ? <ChatWindow /> : <FloatingButton />}
     </div>
   )
