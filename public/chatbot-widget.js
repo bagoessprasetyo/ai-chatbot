@@ -1,4 +1,4 @@
-// public/chatbot-widget.js - Improved version
+// public/chatbot-widget.js - Fixed version
 (function() {
   'use strict';
 
@@ -43,17 +43,20 @@
     iframe.src = `https://webbot-ai.netlify.app/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
     iframe.title = 'WebBot AI Chat Widget';
     
-    // Iframe styles - make it invisible initially
+    // Fixed iframe styles - proper floating widget dimensions
     iframe.style.cssText = `
       position: fixed !important;
-      bottom: 0 !important;
-      right: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
+      bottom: 20px !important;
+      right: 20px !important;
+      width: 400px !important;
+      height: 600px !important;
+      max-width: calc(100vw - 40px) !important;
+      max-height: calc(100vh - 40px) !important;
       border: none !important;
       background: transparent !important;
       z-index: 999999 !important;
-      pointer-events: none !important;
+      border-radius: 16px !important;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15) !important;
       opacity: 0 !important;
       transition: opacity 0.3s ease !important;
     `;
@@ -61,9 +64,8 @@
     // Handle iframe load
     iframe.onload = function() {
       console.log('WebBot AI: Widget iframe loaded successfully');
-      // Make iframe visible and enable pointer events
+      // Make iframe visible
       iframe.style.opacity = '1';
-      iframe.style.pointerEvents = 'auto';
     };
 
     iframe.onerror = function() {
@@ -77,21 +79,25 @@
     function updateIframeSize() {
       const isMobile = window.innerWidth <= 768;
       if (isMobile) {
-        iframe.style.width = '100vw';
-        iframe.style.height = '100vh';
+        iframe.style.width = 'calc(100vw - 20px)';
+        iframe.style.height = 'calc(100vh - 20px)';
+        iframe.style.bottom = '10px';
+        iframe.style.right = '10px';
       } else {
-        iframe.style.width = '100vw';
-        iframe.style.height = '100vh';
+        iframe.style.width = '400px';
+        iframe.style.height = '600px';
+        iframe.style.bottom = '20px';
+        iframe.style.right = '20px';
       }
     }
 
     window.addEventListener('resize', updateIframeSize);
     updateIframeSize();
 
-    // Handle messages from iframe (for future features)
+    // Handle messages from iframe
     window.addEventListener('message', function(event) {
       // Verify origin for security
-      if (event.origin !== origin) {
+      if (event.origin !== 'https://webbot-ai.netlify.app') {
         return;
       }
 
@@ -99,7 +105,6 @@
       if (event.data && typeof event.data === 'object') {
         switch (event.data.type) {
           case 'webbot-resize':
-            // Handle dynamic resizing if needed
             console.log('WebBot AI: Resize request received');
             break;
           case 'webbot-ready':
@@ -108,8 +113,16 @@
           case 'webbot-error':
             console.error('WebBot AI: Widget error', event.data.error);
             break;
+          case 'webbot-minimize':
+            // Handle minimize state
+            iframe.style.width = '80px';
+            iframe.style.height = '80px';
+            break;
+          case 'webbot-restore':
+            // Restore to full size
+            updateIframeSize();
+            break;
           default:
-            // Unknown message type
             break;
         }
       }
@@ -127,7 +140,7 @@
     }
   }
 
-  // Add some basic CSS to ensure our widget doesn't interfere with the host site
+  // Add widget styles
   function addWidgetStyles() {
     if (document.getElementById('webbot-ai-styles')) {
       return;
@@ -137,26 +150,24 @@
     style.id = 'webbot-ai-styles';
     style.textContent = `
       #webbot-ai-widget {
-        /* Ensure our iframe is always on top and properly positioned */
+        /* Ensure proper stacking and positioning */
         position: fixed !important;
         z-index: 999999 !important;
         border: none !important;
         background: transparent !important;
+        pointer-events: auto !important;
       }
       
-      /* Prevent scroll issues on mobile */
-      @media (max-width: 768px) {
-        #webbot-ai-widget.mobile-fullscreen {
-          top: 0 !important;
-          left: 0 !important;
-          width: 100vw !important;
-          height: 100vh !important;
-        }
-      }
-      
-      /* Ensure the widget doesn't interfere with host site styles */
+      /* Ensure the widget doesn't interfere with host site */
       #webbot-ai-widget * {
         box-sizing: border-box;
+      }
+      
+      /* Prevent any host site styles from affecting the widget */
+      #webbot-ai-widget {
+        all: initial;
+        position: fixed !important;
+        z-index: 999999 !important;
       }
     `;
 
@@ -167,12 +178,11 @@
   addWidgetStyles();
   init();
 
-  // Expose API for external control (optional)
+  // Expose API for external control
   window.WebBotAI = {
     chatbotId: chatbotId,
     websiteId: websiteId,
     
-    // Method to manually trigger widget reload
     reload: function() {
       console.log('WebBot AI: Reloading widget');
       const existingWidget = document.getElementById('webbot-ai-widget');
@@ -182,7 +192,6 @@
       createWidget();
     },
     
-    // Method to remove widget
     destroy: function() {
       console.log('WebBot AI: Destroying widget');
       const existingWidget = document.getElementById('webbot-ai-widget');
@@ -196,16 +205,14 @@
       window.WebBotAILoaded = false;
     },
     
-    // Method to check if widget is loaded
     isLoaded: function() {
       return !!document.getElementById('webbot-ai-widget');
     },
     
-    // Method to open/close widget programmatically
     toggle: function() {
       const iframe = document.getElementById('webbot-ai-widget');
       if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'webbot-toggle' }, origin);
+        iframe.contentWindow.postMessage({ type: 'webbot-toggle' }, 'https://webbot-ai.netlify.app');
       }
     }
   };
