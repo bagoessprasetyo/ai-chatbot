@@ -4,6 +4,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 
 export async function GET(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['*']
+
+  const headers = new Headers()
+  if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
+    headers.set('Access-Control-Allow-Origin', origin)
+  }
+  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
   try {
     const { searchParams } = new URL(request.url)
     const chatbotId = searchParams.get('chatbotId')
@@ -11,7 +21,7 @@ export async function GET(request: NextRequest) {
     if (!chatbotId) {
       return NextResponse.json(
         { error: 'Missing chatbotId parameter' },
-        { status: 400 }
+        { status: 400, headers }
       )
     }
 
@@ -38,7 +48,7 @@ export async function GET(request: NextRequest) {
     if (error || !chatbot) {
       return NextResponse.json(
         { error: 'Chatbot not found or inactive 1 , '+JSON.stringify(error)  },
-        { status: 404 }
+        { status: 404, headers }
       )
     }
 
@@ -79,13 +89,27 @@ export async function GET(request: NextRequest) {
       website_id: chatbot.websites?.[0]?.id,
       website_title: chatbot.websites?.[0]?.title,
       website_url: chatbot.websites?.[0]?.url
-    })
+    }, { headers })
 
   } catch (error: any) {
     console.error('Error loading chatbot config:', error)
     return NextResponse.json(
       { error: 'Failed to load chatbot configuration' },
-      { status: 500 }
+      { status: 500, headers }
     )
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['*']
+
+  const headers = new Headers()
+  if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
+    headers.set('Access-Control-Allow-Origin', origin)
+  }
+  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+  return new NextResponse(null, { status: 204, headers })
 }
