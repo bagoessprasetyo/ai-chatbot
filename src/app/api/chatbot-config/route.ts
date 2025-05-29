@@ -1,20 +1,20 @@
-// src/app/api/chatbot-config/route.ts
+// src/app/api/chatbot-config/route.ts - Fixed CORS version
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 
 const getCORSHeaders = (origin: string | null): Headers => {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['*']
   const headers = new Headers()
-
-  if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
-    headers.set('Access-Control-Allow-Origin', origin)
-  } else {
-    headers.set('Access-Control-Allow-Origin', '*') // fallback
-  }
-
-  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  headers.set('Access-Control-Max-Age', '86400') // cache preflight
+  
+  // Always allow all origins for widget embedding
+  headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  headers.set('Access-Control-Max-Age', '86400')
+  headers.set('Access-Control-Allow-Credentials', 'false')
+  
+  // Additional headers for better compatibility
+  headers.set('Cache-Control', 'public, max-age=300') // 5 minute cache
+  headers.set('Vary', 'Origin')
 
   return headers
 }
@@ -22,6 +22,7 @@ const getCORSHeaders = (origin: string | null): Headers => {
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get('origin')
   const headers = getCORSHeaders(origin)
+  console.log('CORS preflight request from:', origin)
   return new NextResponse(null, { status: 204, headers })
 }
 
@@ -32,13 +33,21 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const chatbotId = searchParams.get('chatbotId')
+    const websiteId = searchParams.get('websiteId') // Add this for additional validation
+
+    console.log('Config request:', { chatbotId, websiteId, origin })
 
     if (!chatbotId) {
-      return NextResponse.json({ error: 'Missing chatbotId parameter' }, { status: 400, headers })
+      console.error('Missing chatbotId parameter')
+      return NextResponse.json({ 
+        error: 'Missing chatbotId parameter',
+        debug: { chatbotId, websiteId, origin }
+      }, { status: 400, headers })
     }
 
     const supabase = createServerClient()
 
+    // Enhanced query with better error handling
     const { data: chatbot, error } = await supabase
       .from('chatbots')
       .select(`
@@ -53,11 +62,30 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('id', chatbotId)
-      .eq('is_active', true)
       .single()
 
-    if (error || !chatbot) {
-      return NextResponse.json({ error: 'Chatbot not found or inactive' }, { status: 404, headers })
+    if (error) {
+      console.error('Database error:', error)
+      return NextResponse.json({ 
+        error: 'Database error',
+        debug: { error: error.message, chatbotId }
+      }, { status: 500, headers })
+    }
+
+    if (!chatbot) {
+      console.error('Chatbot not found:', chatbotId)
+      return NextResponse.json({ 
+        error: 'Chatbot not found',
+        debug: { chatbotId }
+      }, { status: 404, headers })
+    }
+
+    if (!chatbot.is_active) {
+      console.error('Chatbot inactive:', chatbotId)
+      return NextResponse.json({ 
+        error: 'Chatbot is not active',
+        debug: { chatbotId, is_active: chatbot.is_active }
+      }, { status: 403, headers })
     }
 
     const defaultConfig = {
@@ -79,7 +107,8 @@ export async function GET(request: NextRequest) {
 
     const config = { ...defaultConfig, ...chatbot.config }
 
-    return NextResponse.json({
+    const response = {
+      success: true,
       id: chatbot.id,
       name: chatbot.name,
       config,
@@ -89,11 +118,27 @@ export async function GET(request: NextRequest) {
       position: config.position,
       website_id: chatbot.websites?.[0]?.id,
       website_title: chatbot.websites?.[0]?.title,
-      website_url: chatbot.websites?.[0]?.url
-    }, { headers })
+      website_url: chatbot.websites?.[0]?.url,
+      debug: {
+        origin,
+        chatbotId,
+        websiteId,
+        timestamp: new Date().toISOString()
+      }
+    }
+
+    console.log('Sending config response:', { chatbotId, origin, success: true })
+    return NextResponse.json(response, { headers })
 
   } catch (error) {
-    console.error('Error loading chatbot config:', error)
-    return NextResponse.json({ error: 'Failed to load chatbot configuration' }, { status: 500, headers })
+    console.error('Unexpected error loading chatbot config:', error)
+    return NextResponse.json({ 
+      error: 'Failed to load chatbot configuration',
+      debug: { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        origin,
+        timestamp: new Date().toISOString()
+      }
+    }, { status: 500, headers })
   }
 }

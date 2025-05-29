@@ -1,4 +1,4 @@
-// src/components/SubscriptionAwareChatWidget.tsx
+// src/components/SubscriptionAwareChatWidget.tsx - Improved version with better error handling
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -97,8 +97,22 @@ export default function SubscriptionAwareChatWidget({
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [config, setConfig] = useState<ChatbotConfig | null>(null)
+  const [configError, setConfigError] = useState<string | null>(null)
+  const [configLoading, setConfigLoading] = useState(true)
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
-  const API_BASE_URL = 'https://webbot-ai.netlify.app'; 
+  
+  // Determine API base URL more dynamically
+  const API_BASE_URL = useMemo(() => {
+    // Try to get from window location if we're in an iframe
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const apiUrl = params.get('apiUrl')
+      if (apiUrl) return apiUrl
+    }
+    // Fallback to production API
+    return 'https://webbot-ai.netlify.app'
+  }, [])
+  
   // Contact form states
   const [formData, setFormData] = useState({
     name: '',
@@ -110,6 +124,118 @@ export default function SubscriptionAwareChatWidget({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
+
+  // Enhanced config fetching with better error handling and retries
+  useEffect(() => {
+    let retryCount = 0
+    const maxRetries = 3
+
+    const fetchConfig = async (): Promise<void> => {
+      try {
+        setConfigLoading(true)
+        setConfigError(null)
+        
+        console.log('Fetching chatbot config:', { chatbotId, websiteId, apiUrl: API_BASE_URL })
+        
+        const url = `${API_BASE_URL}/api/chatbot-config?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          // Don't include credentials for cross-origin requests
+          credentials: 'omit'
+        })
+
+        console.log('Config fetch response:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries())
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          let errorData
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            errorData = { error: errorText }
+          }
+          
+          console.error('Config fetch failed:', errorData)
+          throw new Error(`HTTP ${response.status}: ${errorData.error || response.statusText}`)
+        }
+
+        const data = await response.json()
+        console.log('Config loaded successfully:', data)
+        
+        if (!data.success && !data.id) {
+          throw new Error('Invalid response format')
+        }
+
+        const chatbotConfig: ChatbotConfig = {
+          name: data.name || 'AI Assistant',
+          theme: data.theme || 'default',
+          position: data.position || 'bottom-right',
+          primary_color: data.config?.primary_color || '#3B82F6',
+          secondary_color: data.config?.secondary_color || '#EFF6FF',
+          text_color: data.config?.text_color || '#1F2937',
+          background_color: data.config?.background_color || '#FFFFFF',
+          border_radius: data.config?.border_radius || 12,
+          avatar_style: data.config?.avatar_style || 'bot',
+          avatar_icon: data.config?.avatar_icon || 'Bot',
+          welcome_message: data.welcome_message || 'Hello! How can I help you today?',
+          placeholder_text: data.config?.placeholder_text || 'Type your message...',
+          animation_style: data.config?.animation_style || 'none',
+          bubble_style: data.config?.bubble_style || 'modern',
+          show_branding: data.config?.show_branding !== false
+        }
+        
+        setConfig(chatbotConfig)
+        setConfigError(null)
+        
+      } catch (error) {
+        console.error('Failed to fetch chatbot config:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        
+        if (retryCount < maxRetries) {
+          retryCount++
+          console.log(`Retrying config fetch (${retryCount}/${maxRetries})...`)
+          setTimeout(() => fetchConfig(), 1000 * retryCount) // Exponential backoff
+          return
+        }
+        
+        setConfigError(`Failed to load configuration: ${errorMessage}`)
+        
+        // Use default config as fallback
+        const defaultConfig: ChatbotConfig = {
+          name: 'AI Assistant',
+          theme: 'default',
+          position: 'bottom-right',
+          primary_color: '#3B82F6',
+          secondary_color: '#EFF6FF',
+          text_color: '#1F2937',
+          background_color: '#FFFFFF',
+          border_radius: 12,
+          avatar_style: 'bot',
+          avatar_icon: 'Bot',
+          welcome_message: 'Hello! How can I help you today?',
+          placeholder_text: 'Type your message...',
+          animation_style: 'none',
+          bubble_style: 'modern',
+          show_branding: true
+        }
+        
+        setConfig(defaultConfig)
+      } finally {
+        setConfigLoading(false)
+      }
+    }
+
+    fetchConfig()
+  }, [chatbotId, websiteId, API_BASE_URL])
 
   // Contact form validation and submission
   const validateForm = useCallback(() => {
@@ -157,6 +283,7 @@ export default function SubscriptionAwareChatWidget({
       await fetch(`${API_BASE_URL}/api/chat/contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
         body: JSON.stringify({
           chatbotId,
           sessionId,
@@ -166,7 +293,7 @@ export default function SubscriptionAwareChatWidget({
     } catch (error) {
       console.error('Failed to save contact info:', error)
     }
-  }, [formData, validateForm, config, chatbotId, sessionId])
+  }, [formData, validateForm, config, chatbotId, sessionId, API_BASE_URL])
 
   const handleFormChange = useCallback((field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -175,6 +302,7 @@ export default function SubscriptionAwareChatWidget({
       setFormErrors(prev => ({ ...prev, [field]: '' }))
     }
   }, [formErrors])
+
   const renderAvatarIcon = useCallback((size: 'sm' | 'md' = 'md') => {
     if (!config) return null
 
@@ -212,69 +340,6 @@ export default function SubscriptionAwareChatWidget({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
-
-  // Fetch chatbot configuration
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/chatbot-config?chatbotId=${chatbotId}`)
-        if (response.ok) {
-          const data = await response.json()
-          
-          const chatbotConfig: ChatbotConfig = {
-            name: data.name || 'AI Assistant',
-            theme: data.theme || 'default',
-            position: data.position || 'bottom-right',
-            primary_color: data.config?.primary_color || '#3B82F6',
-            secondary_color: data.config?.secondary_color || '#EFF6FF',
-            text_color: data.config?.text_color || '#1F2937',
-            background_color: data.config?.background_color || '#FFFFFF',
-            border_radius: data.config?.border_radius || 12,
-            avatar_style: data.config?.avatar_style || 'bot',
-            avatar_icon: data.config?.avatar_icon || '🤖',
-            welcome_message: data.welcome_message || 'Hello! How can I help you today?',
-            placeholder_text: data.config?.placeholder_text || 'Type your message...',
-            animation_style: data.config?.animation_style || 'none',
-            bubble_style: data.config?.bubble_style || 'modern',
-            show_branding: data.config?.show_branding !== false
-          }
-          
-          setConfig(chatbotConfig)
-          
-          // Don't add welcome message here - will be added after contact form
-        } else {
-          useDefaultConfig()
-        }
-      } catch (error) {
-        console.error('Failed to fetch chatbot config:', error)
-        useDefaultConfig()
-      }
-    }
-
-    const useDefaultConfig = () => {
-      const defaultConfig: ChatbotConfig = {
-        name: 'AI Assistant',
-        theme: 'default',
-        position: 'bottom-right',
-        primary_color: '#3B82F6',
-        secondary_color: '#EFF6FF',
-        text_color: '#1F2937',
-        background_color: '#FFFFFF',
-        border_radius: 12,
-        avatar_style: 'bot',
-        avatar_icon: '🤖',
-        welcome_message: 'Hello! How can I help you today?',
-        placeholder_text: 'Type your message...',
-        animation_style: 'none',
-        bubble_style: 'modern',
-        show_branding: true
-      }
-      
-      setConfig(defaultConfig)
-    }
-
-    fetchConfig()
-  }, [chatbotId])
 
   // Custom Markdown Components - memoized to prevent re-renders
   const MarkdownComponents = useMemo(() => ({
@@ -332,6 +397,7 @@ export default function SubscriptionAwareChatWidget({
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
         body: JSON.stringify({
           chatbotId,
           message: userMessage.content,
@@ -379,7 +445,7 @@ export default function SubscriptionAwareChatWidget({
     } finally {
       setIsLoading(false)
     }
-  }, [inputValue, isLoading, config, contactInfo, chatbotId, sessionId, messages])
+  }, [inputValue, isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL])
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -444,10 +510,24 @@ export default function SubscriptionAwareChatWidget({
     }
   }, [config])
 
-  if (!config) {
+  // Loading state
+  if (configLoading) {
     return (
       <div className="fixed bottom-5 right-5 z-[999999]">
-        <div className="w-14 h-14 bg-gray-200 rounded-full animate-pulse"></div>
+        <div className="w-14 h-14 bg-gray-200 rounded-full animate-pulse flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (configError && !config) {
+    return (
+      <div className="fixed bottom-5 right-5 z-[999999]">
+        <div className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center" title={configError}>
+          <X className="w-6 h-6 text-white" />
+        </div>
       </div>
     )
   }
@@ -455,17 +535,22 @@ export default function SubscriptionAwareChatWidget({
   const ContactForm = () => (
     <div className="p-6 space-y-4">
       <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold mb-2" style={{ color: config.text_color }}>
+        <h3 className="text-lg font-semibold mb-2" style={{ color: config?.text_color }}>
           Welcome! Let's get started
         </h3>
         <p className="text-sm text-gray-600">
           Please provide your contact information to begin chatting with our AI assistant.
         </p>
+        {configError && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+            ⚠️ Using fallback configuration: {configError}
+          </div>
+        )}
       </div>
       
       <form onSubmit={handleContactSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config.text_color }}>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
             Name <span className="text-red-500">*</span>
           </label>
           <input
@@ -475,7 +560,6 @@ export default function SubscriptionAwareChatWidget({
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
             style={{ 
               borderColor: formErrors.name ? '#EF4444' : '#E5E7EB',
-              // '--tw-ring-color': config.primary_color 
             }}
             placeholder="Enter your full name"
           />
@@ -485,7 +569,7 @@ export default function SubscriptionAwareChatWidget({
         </div>
         
         <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config.text_color }}>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
             Email <span className="text-red-500">*</span>
           </label>
           <input
@@ -495,7 +579,6 @@ export default function SubscriptionAwareChatWidget({
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
             style={{ 
               borderColor: formErrors.email ? '#EF4444' : '#E5E7EB',
-              // '--tw-ring-color': config.primary_color 
             }}
             placeholder="Enter your email address"
           />
@@ -505,7 +588,7 @@ export default function SubscriptionAwareChatWidget({
         </div>
         
         <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config.text_color }}>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
             Notes <span className="text-gray-400">(optional)</span>
           </label>
           <textarea
@@ -513,10 +596,7 @@ export default function SubscriptionAwareChatWidget({
             onChange={(e) => handleFormChange('notes', e.target.value)}
             rows={3}
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 resize-none"
-            style={{ 
-              borderColor: '#E5E7EB',
-              // '--tw-ring-color': config.primary_color
-            }}
+            style={{ borderColor: '#E5E7EB' }}
             placeholder="Tell us what you'd like to discuss or ask about..."
           />
         </div>
@@ -524,7 +604,7 @@ export default function SubscriptionAwareChatWidget({
         <button
           type="submit"
           className="w-full py-3 rounded-lg text-white font-medium transition-colors hover:opacity-90"
-          style={{ backgroundColor: config.primary_color }}
+          style={{ backgroundColor: config?.primary_color }}
         >
           Start Chatting
         </button>
@@ -542,6 +622,7 @@ export default function SubscriptionAwareChatWidget({
       `}
       style={floatingButtonStyles}
       aria-label="Open chat"
+      title={configError ? `⚠️ ${configError}` : undefined}
     >
       {renderAvatarIcon()}
     </button>
@@ -553,7 +634,7 @@ export default function SubscriptionAwareChatWidget({
       className={`
         mb-4 shadow-2xl transition-all duration-300 ease-in-out overflow-hidden backdrop-blur-sm
         ${isMinimized ? 'h-16' : 'h-[600px] w-[90vw] sm:w-[400px] md:w-[450px]'}
-        ${config.theme === 'minimal' ? 'border border-gray-200' : ''}
+        ${config?.theme === 'minimal' ? 'border border-gray-200' : ''}
       `}
       style={chatWindowStyles}
     >
@@ -570,8 +651,10 @@ export default function SubscriptionAwareChatWidget({
             {renderAvatarIcon('sm')}
           </div>
           <div>
-            <span className="font-semibold text-sm">{config.name}</span>
-            <p className="text-xs opacity-90">Online now</p>
+            <span className="font-semibold text-sm">{config?.name}</span>
+            <p className="text-xs opacity-90">
+              {configError ? '⚠️ Limited functionality' : 'Online now'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -610,8 +693,8 @@ export default function SubscriptionAwareChatWidget({
                     <div 
                       className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
                       style={{
-                        backgroundColor: message.role === 'user' ? config.primary_color : config.secondary_color,
-                        color: message.role === 'user' ? 'white' : config.primary_color
+                        backgroundColor: message.role === 'user' ? config?.primary_color : config?.secondary_color,
+                        color: message.role === 'user' ? 'white' : config?.primary_color
                       }}
                     >
                       {message.role === 'user' ? (
@@ -629,14 +712,14 @@ export default function SubscriptionAwareChatWidget({
                       }`}
                       style={{
                         backgroundColor: message.role === 'user' 
-                          ? config.primary_color 
-                          : config.secondary_color,
+                          ? config?.primary_color 
+                          : config?.secondary_color,
                         color: message.role === 'user' 
                           ? 'white' 
-                          : config.text_color,
+                          : config?.text_color,
                         border: message.role === 'user' 
                           ? 'none' 
-                          : `1px solid ${config.primary_color}20`
+                          : `1px solid ${config?.primary_color}20`
                       }}
                     >
                       {message.role === 'assistant' ? (
@@ -662,24 +745,24 @@ export default function SubscriptionAwareChatWidget({
                   <div className="flex items-start gap-3">
                     <div 
                       className="w-8 h-8 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: config.secondary_color, color: config.primary_color }}
+                      style={{ backgroundColor: config?.secondary_color, color: config?.primary_color }}
                     >
                       {renderAvatarIcon('sm')}
                     </div>
                     <div 
                       className="rounded-2xl rounded-bl-md px-4 py-3 shadow-sm"
-                      style={{ backgroundColor: config.secondary_color, border: `1px solid ${config.primary_color}20` }}
+                      style={{ backgroundColor: config?.secondary_color, border: `1px solid ${config?.primary_color}20` }}
                     >
                       <div className="flex items-center space-x-2">
                         <div className="flex space-x-1">
                           <div 
                             className="w-2 h-2 rounded-full animate-bounce"
-                            style={{ backgroundColor: config.primary_color, opacity: 0.6 }}
+                            style={{ backgroundColor: config?.primary_color, opacity: 0.6 }}
                           ></div>
                           <div 
                             className="w-2 h-2 rounded-full animate-bounce"
                             style={{ 
-                              backgroundColor: config.primary_color, 
+                              backgroundColor: config?.primary_color, 
                               opacity: 0.6,
                               animationDelay: '0.1s' 
                             }}
@@ -687,7 +770,7 @@ export default function SubscriptionAwareChatWidget({
                           <div 
                             className="w-2 h-2 rounded-full animate-bounce"
                             style={{ 
-                              backgroundColor: config.primary_color, 
+                              backgroundColor: config?.primary_color, 
                               opacity: 0.6,
                               animationDelay: '0.2s' 
                             }}
@@ -703,20 +786,20 @@ export default function SubscriptionAwareChatWidget({
               </div>
 
               {/* Input */}
-              <div className="p-4 border-t border-gray-100" style={{ backgroundColor: config.background_color }}>
+              <div className="p-4 border-t border-gray-100" style={{ backgroundColor: config?.background_color }}>
                 <div className="relative rounded-lg border bg-white focus-within:ring-2 focus-within:ring-opacity-50" 
-                     style={{ borderColor: '#E5E7EB', ['--tw-ring-color' as string]: config.primary_color }}>
+                     style={{ borderColor: '#E5E7EB' }}>
                   <textarea
                     ref={inputRef}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    placeholder={config.placeholder_text}
+                    placeholder={config?.placeholder_text}
                     disabled={isLoading}
                     rows={1}
                     className="w-full px-4 py-3 pr-24 text-sm border-0 rounded-lg resize-none focus:outline-none max-h-32 min-h-[48px]"
                     style={{ 
-                      color: config.text_color,
+                      color: config?.text_color,
                       backgroundColor: 'white'
                     }}
                   />
@@ -740,7 +823,7 @@ export default function SubscriptionAwareChatWidget({
                       disabled={!inputValue.trim() || isLoading}
                       className="p-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2"
                       style={{ 
-                        backgroundColor: config.primary_color,
+                        backgroundColor: config?.primary_color,
                         color: 'white'
                       }}
                       aria-label="Send message"
@@ -756,7 +839,7 @@ export default function SubscriptionAwareChatWidget({
                   </span>
                 </div>
                 
-                {config.show_branding && (
+                {config?.show_branding && (
                   <div className="mt-2 text-center">
                     <span className="text-xs" style={{ color: '#9CA3AF' }}>
                       Powered by{' '}
@@ -765,7 +848,7 @@ export default function SubscriptionAwareChatWidget({
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="hover:underline transition-colors"
-                        style={{ color: config.primary_color }}
+                        style={{ color: config?.primary_color }}
                       >
                         WebBot AI
                       </a>
