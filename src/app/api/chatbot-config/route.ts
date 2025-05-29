@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     if (error || !chatbot) {
       return NextResponse.json(
-        { error: 'Chatbot not found or inactive 1 , ',chatbotId },
+        { error: 'Chatbot not found or inactive 1 , '+error },
         { status: 404 }
       )
     }
