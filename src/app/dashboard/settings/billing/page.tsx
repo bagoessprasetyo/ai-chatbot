@@ -121,6 +121,7 @@ interface PricingCardProps {
   loading: boolean
 }
 
+
 const PricingCard = ({ plan, currentPlan = false, onUpgrade, loading }: PricingCardProps) => {
   return (
     <Card className={`relative ${plan.is_popular ? 'border-blue-500 shadow-lg' : ''} ${currentPlan ? 'bg-blue-50 border-blue-200' : ''}`}>
@@ -251,6 +252,7 @@ const UsageMetric = ({ label, used, limit, icon, formatValue = (v) => v.toString
 
 export default function BillingSettingsPage() {
   const { user } = useAuth()
+  // console.log('userrrrrr : ',user)
   const {
     subscription,
     loading,
@@ -264,37 +266,123 @@ const [billingHistory, setBillingHistory] = useState<any[]>([])
   const [upgradeLoading, setUpgradeLoading] = useState(false)
 
   useEffect(() => {
-    fetchBillingHistory()
-    handleCheckoutResult()
-  }, [])
+    if (user) {
+      fetchBillingHistory()
+      handleCheckoutResult()
+    }
+  }, [user])
 
-  const handleCheckoutResult = () => {
+  const handleCheckoutResult = async () => {
     if (typeof window === 'undefined') return
     
     const urlParams = new URLSearchParams(window.location.search)
     const success = urlParams.get('success')
     const canceled = urlParams.get('canceled')
     const plan = urlParams.get('plan')
-
+    const sessionId = urlParams.get('session_id')
+  
+    console.log('🔍 Checkout result:', { success, canceled, plan, sessionId })
+  
     if (success === 'true') {
-      alert(`Successfully upgraded to ${plan} plan! Your subscription is now active.`)
-      refreshSubscription()
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname)
+      console.log('💳 Payment successful, syncing subscription...')
+      
+      // Show processing message
+      const processingToast = alert('Payment successful! Processing your subscription...')
+      
+      try {
+        // Try to sync subscription immediately
+        const syncResult = await syncSubscription(sessionId || '')
+        console.log('async result : ',syncResult)
+        if (syncResult) {
+          alert(`🎉 Successfully upgraded to ${plan} plan! Your subscription is now active.`)
+        } else {
+          // If immediate sync fails, try polling
+          console.log('⏳ Immediate sync failed, trying polling...')
+          let attempts = 0
+          const maxAttempts = 8
+          
+          const pollSubscription = async (): Promise<void> => {
+            attempts++
+            console.log(`🔄 Polling attempt ${attempts}/${maxAttempts}`)
+            
+            const syncSuccess = await syncSubscription(sessionId || '')
+            
+            if (syncSuccess) {
+              alert(`🎉 Successfully upgraded to ${plan} plan! Your subscription is now active.`)
+              return
+            }
+            
+            if (attempts < maxAttempts) {
+              // Wait longer between attempts (exponential backoff)
+              const delay = Math.min(2000 * Math.pow(1.5, attempts), 10000)
+              setTimeout(pollSubscription, delay)
+            } else {
+              alert('⚠️ Payment was successful but subscription update is taking longer than expected. Please refresh the page in a few minutes or contact support.')
+            }
+          }
+          
+          // Start polling after 2 seconds
+          setTimeout(pollSubscription, 2000)
+        }
+      } catch (error) {
+        console.error('❌ Error during subscription sync:', error)
+        alert('⚠️ Payment was successful but there was an issue updating your subscription. Please contact support.')
+      }
+      
+      // Clean URL after a short delay
+      setTimeout(() => {
+        window.history.replaceState({}, document.title, '/dashboard/settings/billing')
+      }, 3000)
+      
     } else if (canceled === 'true') {
-      alert('Checkout was cancelled. You can try again anytime.')
-      // Clean URL  
-      window.history.replaceState({}, document.title, window.location.pathname)
+      alert('❌ Checkout was cancelled. You can try again anytime.')
+      // Clean URL immediately
+      window.history.replaceState({}, document.title, '/dashboard/settings/billing')
+    }
+  }
+
+  const syncSubscription = async (sessionId?: string) => {
+    console.log('masuk sync')
+    console.log('session id : ',sessionId)
+    console.log('user id : ',user)
+    if (!user) return false
+    
+    try {
+      const response = await fetch('/api/sync-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          sessionId: sessionId
+        })
+      })
+  
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        console.log('✅ Subscription synced:', data.subscription)
+        await refreshSubscription()
+        return true
+      } else {
+        console.error('❌ Sync failed:', data.error)
+        return false
+      }
+    } catch (error) {
+      console.error('❌ Sync error:', error)
+      return false
     }
   }
 
   const fetchBillingHistory = async () => {
-    if (!user) return
+    // if (!user) return
     
     try {
       const response = await fetch('/api/user/billing-history')
       if (response.ok) {
         const data = await response.json()
+        // console.log('resp billing : ',data)
         setBillingHistory(data || [])
       }
     } catch (error) {

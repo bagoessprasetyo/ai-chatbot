@@ -185,7 +185,7 @@ export function WebsiteStatusCard({ website, onRetryScaping, onDelete }: Website
               <Globe className="w-4 h-4 text-blue-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <CardTitle className="text-lg font-semibold truncate">
+              <CardTitle className="text-lg font-semibold truncate w-full max-w-[205px] whitespace-nowrap">
                 {website.title || 'Untitled Website'}
               </CardTitle>
               <div className="flex items-center gap-2 mt-1">

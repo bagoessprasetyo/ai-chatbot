@@ -135,8 +135,8 @@ export async function POST(request: NextRequest) {
     // Create checkout session - try the single price format first
     console.log('Creating checkout session with single price format:', {
       product_price_id: planConfig.price_id,
-      success_url: `${baseUrl}/dashboard/settings?tab=billing&success=true&plan=${planId}`,
-      cancel_url: `${baseUrl}/dashboard/settings?tab=billing&canceled=true`,
+      success_url: `${baseUrl}/dashboard/settings/billing?success=true&plan=${planId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/dashboard/settings/billing?canceled=true`,
       customer_email: user.email!,
       metadata: {
         userId: userId,
@@ -149,8 +149,8 @@ export async function POST(request: NextRequest) {
       checkoutSession = await polar.createCheckoutSession({
         product_id: planConfig.price_id, // Single price format
         price_id: planConfig.price_id, // Single price format
-        success_url: `${baseUrl}/dashboard/settings?tab=billing&success=true&plan=${planId}`,
-        cancel_url: `${baseUrl}/dashboard/settings?tab=billing&canceled=true`,
+        success_url: `${baseUrl}/dashboard/settings/billing?success=true&plan=${planId}`,
+        cancel_url: `${baseUrl}/dashboard/settings/billing?canceled=true`,
         customer_email: user.email!,
         metadata: {
           userId: userId,
@@ -167,8 +167,8 @@ export async function POST(request: NextRequest) {
         product_id: planConfig.product_id!,
         price_id: planConfig.price_id,
         // }],
-        success_url: `${baseUrl}/dashboard/settings?tab=billing&success=true&plan=${planId}`,
-        cancel_url: `${baseUrl}/dashboard/settings?tab=billing&canceled=true`,
+        success_url: `${baseUrl}/dashboard/settings/billing?success=true&plan=${planId}`,
+        cancel_url: `${baseUrl}/dashboard/settings/billing?canceled=true`,
         customer_email: user.email!,
         metadata: {
           userId: userId,

@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
+      console.log('bill : ',billingHistory)
+
     if (error) throw error
 
     return NextResponse.json(billingHistory)

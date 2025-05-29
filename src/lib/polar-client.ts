@@ -313,6 +313,20 @@ export class PolarClient {
 // Singleton instance
 let polarClient: PolarClient | null = null
 
+// export function getPolarClient(): PolarClient {
+//   if (!polarClient) {
+//     const accessToken = process.env.POLAR_ACCESS_TOKEN
+//     if (!accessToken) {
+//       throw new Error('POLAR_ACCESS_TOKEN environment variable is required')
+//     }
+    
+//     polarClient = new PolarClient({ accessToken })
+//   }
+  
+//   return polarClient
+// }
+
+// Plan mapping utilities with correct price IDs from your Polar.sh account
 export function getPolarClient(): PolarClient {
   if (!polarClient) {
     const accessToken = process.env.POLAR_ACCESS_TOKEN
@@ -320,13 +334,18 @@ export function getPolarClient(): PolarClient {
       throw new Error('POLAR_ACCESS_TOKEN environment variable is required')
     }
     
-    polarClient = new PolarClient({ accessToken })
+    // Use sandbox URL if specified, otherwise use production
+    const baseUrl = process.env.POLAR_API_BASE_URL || 'https://api.polar.sh'
+    
+    polarClient = new PolarClient({ 
+      accessToken,
+      baseUrl 
+    })
   }
   
   return polarClient
 }
 
-// Plan mapping utilities with correct price IDs from your Polar.sh account
 export const POLAR_PLAN_MAPPING = {
   free: {
     name: 'Free Trial',
