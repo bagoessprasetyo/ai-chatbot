@@ -69,7 +69,7 @@ const POLAR_PLANS: PolarPlan[] = [
       'Email notifications'
     ],
     limits: {
-      websites: 1,
+      websites: 2,
       chatbots: 2,
       monthlyConversations: 500
     },
@@ -87,7 +87,7 @@ const POLAR_PLANS: PolarPlan[] = [
       'Advanced features'
     ],
     limits: {
-      websites: 3,
+      websites: 5,
       chatbots: 5,
       monthlyConversations: 2000
     },

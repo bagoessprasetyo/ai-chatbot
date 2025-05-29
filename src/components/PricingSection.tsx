@@ -1,345 +1,355 @@
-// src/components/PricingSection.tsx
 "use client";
 
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Check, Zap, Star, TrendingUp, Crown } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { useSubscription } from '@/contexts/SubscriptionContext';
-import { cn } from '@/lib/utils';
+import * as React from "react";
+import { motion } from "framer-motion";
+import { BadgeCheck, ArrowRight, Sparkles, Crown, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
-interface PricingPlan {
-  id: string;
+export interface PricingTier {
+  id?: string;
   name: string;
+  price: Record<string, number | string>;
   description: string;
-  price: number;
-  originalPrice?: number;
-  currency: string;
-  period: string;
   features: string[];
-  conversations: number;
-  websites: number;
-  chatbots: number;
+  cta: string;
+  highlighted?: boolean;
   popular?: boolean;
-  icon: React.ReactNode;
-  buttonText: string;
-  buttonVariant: 'default' | 'outline' | 'secondary';
 }
-
-const plans: PricingPlan[] = [
-  {
-    id: 'free',
-    name: 'Free Trial',
-    description: 'Perfect for trying out WebBot AI',
-    price: 0,
-    currency: 'USD',
-    period: '14 days',
-    conversations: 100,
-    websites: 1,
-    chatbots: 1,
-    features: [
-      '100 conversations included',
-      '1 website connection',
-      '1 AI chatbot',
-      'Basic analytics',
-      'Email support',
-      'No credit card required'
-    ],
-    icon: <Zap className="w-6 h-6" />,
-    buttonText: 'Start Free Trial',
-    buttonVariant: 'outline'
-  },
-  {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Great for small businesses',
-    price: 29,
-    currency: 'USD',
-    period: 'month',
-    conversations: 500,
-    websites: 1,
-    chatbots: 2,
-    features: [
-      '500 conversations/month',
-      '1 website connection',
-      '2 AI chatbots',
-      'Advanced analytics',
-      'Custom branding',
-      'Priority email support',
-      'API access'
-    ],
-    icon: <Star className="w-6 h-6" />,
-    buttonText: 'Get Started',
-    buttonVariant: 'default'
-  },
-  {
-    id: 'professional',
-    name: 'Professional',
-    description: 'Best for growing businesses',
-    price: 79,
-    originalPrice: 99,
-    currency: 'USD',
-    period: 'month',
-    conversations: 2000,
-    websites: 3,
-    chatbots: 5,
-    popular: true,
-    features: [
-      '2,000 conversations/month',
-      '3 website connections',
-      '5 AI chatbots',
-      'Advanced analytics & insights',
-      'Custom branding & themes',
-      'Priority support',
-      'Full API access',
-      'Custom integrations',
-      'White-label options'
-    ],
-    icon: <Crown className="w-6 h-6" />,
-    buttonText: 'Go Professional',
-    buttonVariant: 'default'
-  }
-];
 
 interface PricingCardProps {
-  plan: PricingPlan;
-  isCurrentPlan?: boolean;
-  onSelectPlan: (planId: string) => Promise<void>;
-  loading?: boolean;
+  tier: PricingTier;
+  paymentFrequency: string;
 }
 
-function PricingCard({ plan, isCurrentPlan, onSelectPlan, loading }: PricingCardProps) {
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleSelectPlan = async () => {
-    if (isCurrentPlan || isLoading || loading) return;
-    
-    setIsLoading(true);
-    try {
-      await onSelectPlan(plan.id);
-    } catch (error) {
-      console.error('Error selecting plan:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+export function PricingCard({ tier, paymentFrequency }: PricingCardProps) {
+  const price = tier.price[paymentFrequency];
+  const isHighlighted = tier.highlighted;
+  const isPopular = tier.popular;
 
   return (
-    <div className={cn(
-      "relative rounded-2xl border p-8 transition-all duration-200 hover:shadow-lg",
-      plan.popular 
-        ? "border-blue-200 bg-gradient-to-b from-blue-50 to-white ring-2 ring-blue-200" 
-        : "border-gray-200 bg-white hover:border-gray-300",
-      isCurrentPlan && "ring-2 ring-green-200 border-green-200"
-    )}>
-      {plan.popular && (
-        <Badge className="absolute text-white transform -translate-x-1/2 -top-3 left-1/2 bg-gradient-to-r from-blue-600 to-purple-600">
-          Most Popular
-        </Badge>
-      )}
-      
-      {isCurrentPlan && (
-        <Badge className="absolute text-white transform -translate-x-1/2 bg-green-600 -top-3 left-1/2">
-          Current Plan
-        </Badge>
-      )}
-
-      <div className="flex items-center gap-3 mb-4">
-        <div className={cn(
-          "p-2 rounded-lg",
-          plan.popular ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-600"
-        )}>
-          {plan.icon}
-        </div>
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900">{plan.name}</h3>
-          <p className="text-sm text-gray-600">{plan.description}</p>
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <div className="flex items-baseline gap-2">
-          <span className="text-4xl font-bold text-gray-900">
-            ${plan.price}
-          </span>
-          {plan.originalPrice && (
-            <span className="text-lg text-gray-500 line-through">
-              ${plan.originalPrice}
-            </span>
-          )}
-          <span className="text-gray-600">
-            {plan.price > 0 ? `/${plan.period}` : plan.period}
-          </span>
-        </div>
-        {plan.originalPrice && (
-          <Badge variant="secondary" className="mt-2">
-            Save ${plan.originalPrice - plan.price}/month
-          </Badge>
-        )}
-      </div>
-
-      <div className="mb-8 space-y-3">
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="p-3 rounded-lg bg-gray-50">
-            <div className="text-2xl font-bold text-gray-900">{plan.conversations.toLocaleString()}</div>
-            <div className="text-xs text-gray-600">Conversations</div>
-          </div>
-          <div className="p-3 rounded-lg bg-gray-50">
-            <div className="text-2xl font-bold text-gray-900">{plan.websites}</div>
-            <div className="text-xs text-gray-600">Websites</div>
-          </div>
-          <div className="p-3 rounded-lg bg-gray-50">
-            <div className="text-2xl font-bold text-gray-900">{plan.chatbots}</div>
-            <div className="text-xs text-gray-600">Chatbots</div>
-          </div>
-        </div>
-      </div>
-
-      <ul className="mb-8 space-y-3">
-        {plan.features.map((feature, index) => (
-          <li key={index} className="flex items-center gap-3">
-            <Check className="flex-shrink-0 w-5 h-5 text-green-500" />
-            <span className="text-sm text-gray-700">{feature}</span>
-          </li>
-        ))}
-      </ul>
-
-      <Button
-        onClick={handleSelectPlan}
-        disabled={isCurrentPlan || isLoading || loading}
-        variant={plan.buttonVariant}
-        size="lg"
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      viewport={{ once: true }}
+      className="relative"
+    >
+      <Card
         className={cn(
-          "w-full",
-          plan.popular && "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+          "relative flex flex-col gap-8 overflow-hidden p-8 border transition-all duration-300 hover:shadow-xl h-full",
+          isHighlighted
+            ? "bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-2xl scale-105"
+            : "bg-white dark:bg-gray-900 text-foreground hover:scale-105",
+          isPopular && "ring-2 ring-blue-500 shadow-lg"
         )}
       >
-        {isLoading ? (
+        {isHighlighted && <HighlightedBackground />}
+        {isPopular && <PopularBackground />}
+
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-white rounded-full border-t-transparent animate-spin" />
-            Processing...
+            {isHighlighted && <Crown className="w-5 h-5 text-yellow-400" />}
+            {isPopular && <Zap className="w-5 h-5 text-blue-500" />}
+            <h2 className="text-xl font-semibold capitalize">{tier.name}</h2>
           </div>
-        ) : isCurrentPlan ? (
-          'Current Plan'
-        ) : (
-          plan.buttonText
-        )}
-      </Button>
-    </div>
+          {isPopular && (
+            <Badge className="bg-blue-500 text-white border-0">
+              <Sparkles className="h-3 w-3 mr-1" /> Most Popular
+            </Badge>
+          )}
+          {isHighlighted && (
+            <Badge className="bg-yellow-500 text-black border-0">
+              <Crown className="h-3 w-3 mr-1" /> Best Value
+            </Badge>
+          )}
+        </div>
+
+        <div className="relative">
+          {typeof price === "number" ? (
+            <>
+              <div className="flex items-baseline">
+                <span className="text-4xl font-bold">${price}</span>
+                <span className={cn(
+                  "text-lg ml-1",
+                  isHighlighted ? "text-white/80" : "text-muted-foreground"
+                )}>
+                  /{paymentFrequency === "yearly" ? "year" : "month"}
+                </span>
+              </div>
+              {paymentFrequency === "yearly" && typeof tier.price.monthly === "number" && (
+                <p className={cn(
+                  "text-sm mt-1",
+                  isHighlighted ? "text-white/70" : "text-muted-foreground"
+                )}>
+                  Save ${(tier.price.monthly * 12) - price} per year
+                </p>
+              )}
+            </>
+          ) : (
+            <h1 className="text-4xl font-bold">{price}</h1>
+          )}
+        </div>
+
+        <div className="flex-1">
+          <h3 className={cn(
+            "text-sm font-medium mb-4",
+            isHighlighted ? "text-white/90" : "text-muted-foreground"
+          )}>
+            {tier.description}
+          </h3>
+          <ul className="space-y-3">
+            {tier.features.map((feature, index) => (
+              <motion.li
+                key={index}
+                initial={{ opacity: 0, x: -10 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
+                viewport={{ once: true }}
+                className={cn(
+                  "flex items-start gap-3 text-sm",
+                  isHighlighted ? "text-white/90" : "text-muted-foreground"
+                )}
+              >
+                <BadgeCheck className={cn(
+                  "h-5 w-5 flex-shrink-0 mt-0.5",
+                  isHighlighted ? "text-green-400" : "text-green-500"
+                )} />
+                <span>{feature}</span>
+              </motion.li>
+            ))}
+          </ul>
+        </div>
+
+        <Button
+          className={cn(
+            "w-full mt-auto",
+            isHighlighted 
+              ? "bg-white text-blue-600 hover:bg-gray-100" 
+              : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+          )}
+          size="lg"
+        >
+          {tier.cta}
+          <ArrowRight className="ml-2 h-4 w-4" />
+        </Button>
+      </Card>
+    </motion.div>
   );
 }
 
-export default function PricingSection() {
-  const { user, isAuthenticated } = useAuth();
-  const { subscription, loading: subscriptionLoading } = useSubscription();
-  const [loading, setLoading] = useState(false);
+const HighlightedBackground = () => (
+  <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff1e_1px,transparent_1px),linear-gradient(to_bottom,#ffffff1e_1px,transparent_1px)] bg-[size:45px_45px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_0%,#000_70%,transparent_110%)]" />
+);
 
-  const handleSelectPlan = async (planId: string) => {
-    if (!isAuthenticated) {
-      // Redirect to login/signup
-      window.location.href = '/auth/login';
-      return;
-    }
+const PopularBackground = () => (
+  <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(59,130,246,0.1),rgba(255,255,255,0))]" />
+);
 
-    if (planId === 'free') {
-      // Redirect to dashboard for free trial
-      window.location.href = '/dashboard';
-      return;
-    }
+interface TabProps {
+  text: string;
+  selected: boolean;
+  setSelected: (text: string) => void;
+  discount?: boolean;
+}
 
-    setLoading(true);
-    try {
-      const response = await fetch('/api/create-polar-checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          planId,
-          userId: user?.id
-        })
-      });
+export function Tab({
+  text,
+  selected,
+  setSelected,
+  discount = false,
+}: TabProps) {
+  return (
+    <button
+      onClick={() => setSelected(text)}
+      className={cn(
+        "relative w-fit px-6 py-3 text-sm font-semibold capitalize transition-colors",
+        "text-foreground",
+        discount && "flex items-center justify-center gap-2.5"
+      )}
+    >
+      <span className="relative z-10">{text}</span>
+      {selected && (
+        <motion.span
+          layoutId="tab"
+          transition={{ type: "spring", duration: 0.4 }}
+          className="absolute inset-0 z-0 rounded-full bg-white dark:bg-gray-800 shadow-sm"
+        />
+      )}
+      {discount && (
+        <Badge
+          variant="secondary"
+          className={cn(
+            "relative z-10 whitespace-nowrap shadow-none bg-green-100 text-green-700",
+            selected && "bg-green-200"
+          )}
+        >
+          Save 35%
+        </Badge>
+      )}
+    </button>
+  );
+}
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create checkout session');
-      }
+interface PricingSectionProps {
+  title?: string;
+  subtitle?: string;
+}
 
-      const { url } = await response.json();
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error('No checkout URL received');
-      }
-    } catch (error) {
-      console.error('Error creating checkout session:', error);
-      // You might want to show a toast notification here
-      alert(error instanceof Error ? error.message : 'An error occurred. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+export default function PricingSection({
+  title = "Simple, Transparent Pricing",
+  subtitle = "Choose the perfect plan to scale your customer engagement",
+}: PricingSectionProps) {
+  const [selectedFrequency, setSelectedFrequency] = React.useState("monthly");
 
-  const getCurrentPlanId = () => {
-    return subscription?.plan_id || 'free';
-  };
+  const tiers: PricingTier[] = [
+    {
+      id: "free",
+      name: "Free Trial",
+      price: {
+        monthly: 0,
+        yearly: 0,
+      },
+      description: "Perfect for trying out WebBot AI",
+      features: [
+        "1 website integration",
+        "1 AI chatbot",
+        "Up to 100 conversations/month",
+        "Basic analytics",
+        "Email support",
+        "14-day trial",
+        "Custom branding"
+      ],
+      cta: "Start Free Trial",
+    },
+    {
+      id: "starter",
+      name: "Starter",
+      price: {
+        monthly: 29,
+        yearly: 24,
+      },
+      description: "Great for small businesses",
+      features: [
+        "2 website integrations",
+        "2 AI chatbots",
+        "Up to 500 conversations/month",
+        "Advanced analytics",
+        "Priority support",
+        "Custom branding",
+        "Email notifications"
+      ],
+      cta: "Start Starter Plan",
+    },
+    {
+      id: "professional",
+      name: "Professional",
+      price: {
+        monthly: 79,
+        yearly: 65,
+      },
+      description: "Perfect for growing businesses",
+      features: [
+        "5 website integrations",
+        "5 AI chatbots",
+        "Up to 2,000 conversations/month",
+        "Premium analytics",
+        "API access",
+        "Custom integrations",
+        "Priority support",
+        "Advanced features"
+      ],
+      cta: "Start Professional",
+      popular: true,
+    },
+  ];
+
+  const frequencies = ["monthly", "yearly"];
 
   return (
-    <section id="pricing" className="py-20 bg-gradient-to-b from-gray-50 to-white">
-      <div className="container px-4 mx-auto">
-        <div className="mb-16 text-center">
-          <Badge variant="outline" className="mb-4">
-            <TrendingUp className="w-4 h-4 mr-2" />
-            Simple, Transparent Pricing
-          </Badge>
-          <h2 className="mb-4 text-4xl font-bold text-gray-900">
-            Choose the Perfect Plan for Your Business
-          </h2>
-          <p className="max-w-3xl mx-auto text-xl text-gray-600">
-            Start with our free trial and upgrade as your business grows. 
-            All plans include our core AI chatbot features with no setup fees.
-          </p>
+    <section id="pricing" className="py-24 px-4 bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900 relative overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f0e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f0e_1px,transparent_1px)] bg-[size:35px_35px] opacity-30" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-gradient-to-r from-blue-200/20 to-purple-200/20 rounded-full blur-3xl" />
+      
+      <div className="container mx-auto max-w-7xl relative">
+        <div className="space-y-12 text-center">
+          <motion.div 
+            className="space-y-6"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+          >
+            <h1 className="text-4xl font-bold md:text-5xl tracking-tight bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+              {title}
+            </h1>
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
+              {subtitle}
+            </p>
+          </motion.div>
+          
+          <motion.div 
+            className="mx-auto flex w-fit rounded-full bg-gray-100 dark:bg-gray-800 p-1.5 backdrop-blur-sm border border-gray-200 dark:border-gray-700 shadow-sm"
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            viewport={{ once: true }}
+          >
+            {frequencies.map((freq) => (
+              <Tab
+                key={freq}
+                text={freq}
+                selected={selectedFrequency === freq}
+                setSelected={setSelectedFrequency}
+                discount={freq === "yearly"}
+              />
+            ))}
+          </motion.div>
         </div>
 
-        <div className="grid max-w-6xl grid-cols-1 gap-8 mx-auto md:grid-cols-3">
-          {plans.map((plan) => (
-            <PricingCard
-              key={plan.id}
-              plan={plan}
-              isCurrentPlan={getCurrentPlanId() === plan.id}
-              onSelectPlan={handleSelectPlan}
-              loading={loading || subscriptionLoading}
-            />
+        <div className="grid w-full gap-8 mt-16 sm:grid-cols-2 lg:grid-cols-3">
+          {tiers.map((tier, index) => (
+            <motion.div
+              key={tier.name}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: index * 0.1 }}
+              viewport={{ once: true }}
+            >
+              <PricingCard
+                tier={tier}
+                paymentFrequency={selectedFrequency}
+              />
+            </motion.div>
           ))}
         </div>
 
-        <div className="mt-16 text-center">
-          <div className="max-w-4xl p-8 mx-auto bg-white border border-gray-200 rounded-2xl">
-            <h3 className="mb-4 text-2xl font-semibold text-gray-900">
-              Need Something Custom?
-            </h3>
-            <p className="mb-6 text-gray-600">
-              Looking for enterprise features, custom integrations, or higher limits? 
-              We would love to work with you to create a plan that fits your specific needs.
-            </p>
-            <div className="flex flex-col justify-center gap-4 sm:flex-row">
-              <Button variant="outline" size="lg">
-                Contact Sales
-              </Button>
-              <Button variant="ghost" size="lg">
-                Schedule a Demo
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-12 text-sm text-center text-gray-500">
-          <p>
-            All plans include SSL security, 99.9% uptime SLA, and can be cancelled anytime. 
-            Prices are in USD and billed monthly.
+        {/* Additional Info */}
+        <motion.div 
+          className="text-center mt-16 space-y-4"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.5 }}
+          viewport={{ once: true }}
+        >
+          <p className="text-gray-600 dark:text-gray-400">
+            ✓ All plans include SSL encryption and GDPR compliance
           </p>
-        </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            ✓ 30-day money-back guarantee • ✓ Cancel anytime • ✓ No setup fees
+          </p>
+          <div className="flex justify-center gap-4 mt-8">
+            <Button variant="outline" size="sm">
+              View Feature Comparison
+            </Button>
+            <Button variant="outline" size="sm">
+              Talk to Sales
+            </Button>
+          </div>
+        </motion.div>
       </div>
     </section>
   );

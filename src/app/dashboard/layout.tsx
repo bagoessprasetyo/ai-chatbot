@@ -27,7 +27,8 @@ import {
   PieChart, 
   Settings, 
   User,
-  Bot
+  Bot,
+  BubblesIcon
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,11 @@ function DashboardSidebar() {
       href: "/dashboard/chatbots",
       icon: <Bot className="w-5 h-5" />,
       label: "Chatbots",
+    },
+    {
+      href: "/dashboard/conversations",
+      icon: <BubblesIcon className="w-5 h-5" />,
+      label: "Conversations",
     },
     {
       href: "/dashboard/analytics",
