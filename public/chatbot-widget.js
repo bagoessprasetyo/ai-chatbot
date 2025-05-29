@@ -40,7 +40,7 @@
     // Create iframe
     const iframe = document.createElement('iframe');
     iframe.id = 'webbot-ai-widget';
-    iframe.src = `${origin}/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
+    iframe.src = `${process.env.NEXT_PUBLIC_APP_URL}/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
     iframe.title = 'WebBot AI Chat Widget';
     
     // Iframe styles - make it invisible initially
