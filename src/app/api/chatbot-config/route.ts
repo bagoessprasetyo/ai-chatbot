@@ -1,33 +1,44 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// src/app/api/chatbot-config/route.ts - Updated to return complete configuration
+// src/app/api/chatbot-config/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 
-export async function GET(request: NextRequest) {
-  const origin = request.headers.get('origin')
-  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['*']
-
+const getCORSHeaders = (origin: string | null): Headers => {
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['*']
   const headers = new Headers()
+
   if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
     headers.set('Access-Control-Allow-Origin', origin)
+  } else {
+    headers.set('Access-Control-Allow-Origin', '*') // fallback
   }
+
   headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
   headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  headers.set('Access-Control-Max-Age', '86400') // cache preflight
+
+  return headers
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const headers = getCORSHeaders(origin)
+  return new NextResponse(null, { status: 204, headers })
+}
+
+export async function GET(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const headers = getCORSHeaders(origin)
 
   try {
     const { searchParams } = new URL(request.url)
     const chatbotId = searchParams.get('chatbotId')
 
     if (!chatbotId) {
-      return NextResponse.json(
-        { error: 'Missing chatbotId parameter' },
-        { status: 400, headers }
-      )
+      return NextResponse.json({ error: 'Missing chatbotId parameter' }, { status: 400, headers })
     }
 
     const supabase = createServerClient()
 
-    // Get chatbot configuration with complete config object
     const { data: chatbot, error } = await supabase
       .from('chatbots')
       .select(`
@@ -46,13 +57,9 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (error || !chatbot) {
-      return NextResponse.json(
-        { error: 'Chatbot not found or inactive 1 , '+JSON.stringify(error)  },
-        { status: 404, headers }
-      )
+      return NextResponse.json({ error: 'Chatbot not found or inactive' }, { status: 404, headers })
     }
 
-    // Ensure we have a complete config object with all required properties
     const defaultConfig = {
       theme: 'default',
       position: 'bottom-right',
@@ -70,46 +77,23 @@ export async function GET(request: NextRequest) {
       show_branding: true
     }
 
-    // Merge saved config with defaults
     const config = { ...defaultConfig, ...chatbot.config }
 
-    // Return complete chatbot configuration
     return NextResponse.json({
       id: chatbot.id,
       name: chatbot.name,
-      config: config,
+      config,
       is_active: chatbot.is_active,
-      
-      // Legacy properties for backward compatibility
       welcome_message: config.welcome_message,
       theme: config.theme,
       position: config.position,
-      
-      // Website information
       website_id: chatbot.websites?.[0]?.id,
       website_title: chatbot.websites?.[0]?.title,
       website_url: chatbot.websites?.[0]?.url
     }, { headers })
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error loading chatbot config:', error)
-    return NextResponse.json(
-      { error: 'Failed to load chatbot configuration' },
-      { status: 500, headers }
-    )
+    return NextResponse.json({ error: 'Failed to load chatbot configuration' }, { status: 500, headers })
   }
-}
-
-export async function OPTIONS(request: NextRequest) {
-  const origin = request.headers.get('origin')
-  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['*']
-
-  const headers = new Headers()
-  if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
-    headers.set('Access-Control-Allow-Origin', origin)
-  }
-  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-  return new NextResponse(null, { status: 204, headers })
 }
