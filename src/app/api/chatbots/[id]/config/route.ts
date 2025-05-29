@@ -1,13 +1,13 @@
 // src/app/api/chatbots/[id]/config/route.ts - Fixed version
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { createServerClient } from '@/lib/supabase-server'
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { config, name } = await request.json()
+    const { config, name, user } = await request.json()
     const chatbotId = params.id
 
     if (!chatbotId) {
@@ -20,14 +20,15 @@ export async function PUT(
     console.log('Updating chatbot config:', { chatbotId, config, name })
 
     // Create Supabase client with user session
-    const supabase = createClient()
-
+    const supabase = createServerClient()
+    // await supabase.auth.refreshSession()
     // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
+    // const { data: { user }, error: userError } = await supabase.auth.getUser()
+    // console.log('User:', user)
+    // console.log('User error:', userError)
+    if (!user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized : ' },
         { status: 401 }
       )
     }
@@ -53,10 +54,11 @@ export async function PUT(
         { status: 404 }
       )
     }
-
-    if (chatbot.websites[0]?.user_id !== user.id) {
+    
+    // const website = JSON.stringify(chatbot.websites[0]);
+    if ((chatbot.websites as any).user_id !== user.id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized ' },
         { status: 403 }
       )
     }
@@ -120,7 +122,7 @@ export async function GET(
       )
     }
 
-    const supabase = createClient()
+    const supabase = createServerClient()
 
     // Get the current user
     const { data: { user }, error: userError } = await supabase.auth.getUser()

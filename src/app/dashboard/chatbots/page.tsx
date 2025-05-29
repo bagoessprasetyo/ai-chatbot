@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// src/app/dashboard/chatbots/page.tsx - Updated with AlertDialog components
+// src/app/dashboard/chatbots/page.tsx - Updated with name field and modern icons
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -28,7 +28,24 @@ import {
   Copy,
   ExternalLink,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  User,
+  MessageCircle,
+  Headphones,
+  Heart,
+  Star,
+  Zap,
+  Globe,
+  Shield,
+  Home,
+  Mail,
+  Phone,
+  ShoppingBag,
+  Briefcase,
+  GraduationCap,
+  Camera,
+  Music,
+  Gamepad2
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useSubscription } from '@/contexts/SubscriptionContext'
@@ -36,7 +53,6 @@ import { createClient } from '@/lib/supabase'
 import { handleError } from '@/lib/api-utils'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { toast } from 'sonner'
-// import { showAlert } from '@/components/ui/alert-dialog-components'
 import Link from 'next/link'
 import { showAlert } from '@/components/ui/alert-dialog-component'
 
@@ -97,16 +113,26 @@ const colorPresets = [
   { name: 'Teal', primary: '#14B8A6', secondary: '#F0FDFA' }
 ]
 
-// Avatar icons
+// Updated modern flat avatar icons
 const avatarIcons = [
-  { name: 'Robot', icon: '🤖' },
-  { name: 'Person', icon: '👤' },
-  { name: 'Support', icon: '🎧' },
-  { name: 'Heart', icon: '💙' },
-  { name: 'Star', icon: '⭐' },
-  { name: 'Lightning', icon: '⚡' },
-  { name: 'Speech', icon: '💬' },
-  { name: 'Globe', icon: '🌐' }
+  { name: 'Bot', icon: Bot, color: '#3B82F6' },
+  { name: 'Support', icon: Headphones, color: '#10B981' },
+  { name: 'Assistant', icon: User, color: '#8B5CF6' },
+  { name: 'Chat', icon: MessageCircle, color: '#F59E0B' },
+  { name: 'Heart', icon: Heart, color: '#EC4899' },
+  { name: 'Star', icon: Star, color: '#EAB308' },
+  { name: 'Lightning', icon: Zap, color: '#EF4444' },
+  { name: 'Globe', icon: Globe, color: '#06B6D4' },
+  { name: 'Shield', icon: Shield, color: '#84CC16' },
+  { name: 'Home', icon: Home, color: '#F97316' },
+  { name: 'Mail', icon: Mail, color: '#6366F1' },
+  { name: 'Phone', icon: Phone, color: '#14B8A6' },
+  { name: 'Shopping', icon: ShoppingBag, color: '#EC4899' },
+  { name: 'Business', icon: Briefcase, color: '#64748B' },
+  { name: 'Education', icon: GraduationCap, color: '#7C3AED' },
+  { name: 'Camera', icon: Camera, color: '#DC2626' },
+  { name: 'Music', icon: Music, color: '#059669' },
+  { name: 'Gaming', icon: Gamepad2, color: '#7C2D12' }
 ]
 
 export default function ChatbotsPage() {
@@ -130,6 +156,7 @@ function ChatbotsPageContent() {
   const [loading, setLoading] = useState(true)
   const [selectedChatbot, setSelectedChatbot] = useState<Chatbot | null>(null)
   const [editingConfig, setEditingConfig] = useState<ChatbotConfig>(defaultConfig)
+  const [editingName, setEditingName] = useState<string>('') // ✅ New state for chatbot name
   const [saving, setSaving] = useState(false)
   const [showCustomizeDialog, setShowCustomizeDialog] = useState(false)
 
@@ -224,6 +251,7 @@ function ChatbotsPageContent() {
   const handleCustomize = (chatbot: Chatbot) => {
     setSelectedChatbot(chatbot)
     setEditingConfig({ ...defaultConfig, ...chatbot.config })
+    setEditingName(chatbot.name) // ✅ Set the chatbot name
     setShowCustomizeDialog(true)
   }
 
@@ -232,10 +260,12 @@ function ChatbotsPageContent() {
 
     setSaving(true)
     try {
-      // Extract name from welcome message or keep existing name
-      const newName = editingConfig.welcome_message.split('!')[0] || selectedChatbot.name
-      
-      console.log('Saving config:', { chatbotId: selectedChatbot.id, config: editingConfig, name: newName })
+      console.log('Saving config:', { 
+        chatbotId: selectedChatbot.id, 
+        config: editingConfig, 
+        name: editingName,
+        user: user // ✅ Use the editing name state
+      })
       
       // Use the standard API endpoint for config updates
       const response = await fetch(`/api/chatbots/${selectedChatbot.id}/config`, {
@@ -245,7 +275,8 @@ function ChatbotsPageContent() {
         },
         body: JSON.stringify({
           config: editingConfig,
-          name: newName
+          user: user,
+          name: editingName // ✅ Send the edited name
         })
       })
 
@@ -261,7 +292,7 @@ function ChatbotsPageContent() {
       // Update local state
       setChatbots(prev => prev.map(bot => 
         bot.id === selectedChatbot.id 
-          ? { ...bot, config: editingConfig, name: newName }
+          ? { ...bot, config: editingConfig, name: editingName } // ✅ Update name too
           : bot
       ))
 
@@ -347,44 +378,53 @@ function ChatbotsPageContent() {
       })
   }
 
-  const ChatbotPreview = ({ config }: { config: ChatbotConfig }) => (
-    <div className="relative h-48 p-4 overflow-hidden border rounded-lg bg-gray-50">
-      <div className="absolute bottom-4 right-4">
-        <div 
-          className={`
-            w-14 h-14 rounded-full shadow-lg flex items-center justify-center cursor-pointer
-            transition-all duration-200 hover:scale-105
-            ${config.animation_style === 'bounce' ? 'animate-bounce' : ''}
-            ${config.animation_style === 'pulse' ? 'animate-pulse' : ''}
-          `}
-          style={{ 
-            backgroundColor: config.primary_color,
-            borderRadius: config.avatar_style === 'square' ? '8px' : 
+  const ChatbotPreview = ({ config, name }: { config: ChatbotConfig; name: string }) => {
+    // Find the selected avatar icon
+    const selectedIcon = avatarIcons.find(icon => icon.name === config.avatar_icon) || avatarIcons[0]
+    const IconComponent = selectedIcon.icon
+
+    return (
+      <div className="relative h-48 p-4 overflow-hidden border rounded-lg bg-gray-50">
+        {/* Chatbot name display */}
+        <div className="mb-2 text-sm font-medium text-gray-600">
+          {name}
+        </div>
+        
+        <div className="absolute bottom-4 right-4">
+          <div 
+            className={`
+              w-14 h-14 shadow-lg flex items-center justify-center cursor-pointer
+              transition-all duration-200 hover:scale-105
+              ${config.animation_style === 'bounce' ? 'animate-bounce' : ''}
+              ${config.animation_style === 'pulse' ? 'animate-pulse' : ''}
+            `}
+            style={{ 
+              backgroundColor: config.primary_color,
+              borderRadius: config.avatar_style === 'square' ? '8px' : 
                            config.avatar_style === 'circle' ? '50%' : '12px'
-          }}
-        >
-          <span className="text-xl text-white">
-            {config.avatar_icon || '🤖'}
-          </span>
+            }}
+          >
+            <IconComponent className="w-6 h-6 text-white" />
+          </div>
+        </div>
+        
+        {/* Chat bubble preview */}
+        <div className="absolute bottom-20 right-4">
+          <div 
+            className="max-w-xs p-3 text-sm shadow-lg"
+            style={{ 
+              backgroundColor: config.background_color,
+              color: config.text_color,
+              borderRadius: `${config.border_radius}px`,
+              border: `1px solid ${config.secondary_color}`
+            }}
+          >
+            {config.welcome_message}
+          </div>
         </div>
       </div>
-      
-      {/* Chat bubble preview */}
-      <div className="absolute bottom-20 right-4">
-        <div 
-          className="max-w-xs p-3 text-sm shadow-lg"
-          style={{ 
-            backgroundColor: config.background_color,
-            color: config.text_color,
-            borderRadius: `${config.border_radius}px`,
-            border: `1px solid ${config.secondary_color}`
-          }}
-        >
-          {config.welcome_message}
-        </div>
-      </div>
-    </div>
-  )
+    )
+  }
 
   if (loading || subscriptionLoading) {
     return (
@@ -494,7 +534,7 @@ function ChatbotsPageContent() {
 
               <CardContent className="space-y-4">
                 {/* Preview */}
-                <ChatbotPreview config={chatbot.config} />
+                <ChatbotPreview config={chatbot.config} name={chatbot.name} />
 
                 {/* Actions */}
                 <div className="flex gap-2">
@@ -558,15 +598,28 @@ function ChatbotsPageContent() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Configuration Panel */}
             <div className="space-y-6">
-              <Tabs defaultValue="appearance" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="general" className="w-full">
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="general">General</TabsTrigger>
                   <TabsTrigger value="appearance">Appearance</TabsTrigger>
                   <TabsTrigger value="behavior">Behavior</TabsTrigger>
                   <TabsTrigger value="messages">Messages</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="appearance" className="space-y-4">
-                  {/* Theme Selection */}
+                {/* ✅ New General Tab */}
+                <TabsContent value="general" className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Chatbot Name</Label>
+                    <Input
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      placeholder="Enter chatbot name"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This name is used for internal organization and may be displayed to users.
+                    </p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label>Theme</Label>
                     <Select 
@@ -586,6 +639,25 @@ function ChatbotsPageContent() {
                     </Select>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>Position</Label>
+                    <Select 
+                      value={editingConfig.position} 
+                      onValueChange={(value) => setEditingConfig(prev => ({ ...prev, position: value as any }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bottom-right">Bottom Right</SelectItem>
+                        <SelectItem value="bottom-left">Bottom Left</SelectItem>
+                        <SelectItem value="bottom-center">Bottom Center</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="appearance" className="space-y-4">
                   {/* Color Presets */}
                   <div className="space-y-2">
                     <Label>Color Preset</Label>
@@ -647,24 +719,6 @@ function ChatbotsPageContent() {
                     </div>
                   </div>
 
-                  {/* Position */}
-                  <div className="space-y-2">
-                    <Label>Position</Label>
-                    <Select 
-                      value={editingConfig.position} 
-                      onValueChange={(value) => setEditingConfig(prev => ({ ...prev, position: value as any }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bottom-right">Bottom Right</SelectItem>
-                        <SelectItem value="bottom-left">Bottom Left</SelectItem>
-                        <SelectItem value="bottom-center">Bottom Center</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
                   {/* Avatar Style */}
                   <div className="space-y-2">
                     <Label>Avatar Style</Label>
@@ -684,22 +738,31 @@ function ChatbotsPageContent() {
                     </Select>
                   </div>
 
-                  {/* Avatar Icon */}
+                  {/* ✅ Updated Avatar Icon Selection */}
                   <div className="space-y-2">
                     <Label>Avatar Icon</Label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {avatarIcons.map((avatar) => (
-                        <button
-                          key={avatar.name}
-                          className={`p-2 rounded-lg border text-center hover:bg-gray-50 transition-colors ${
-                            editingConfig.avatar_icon === avatar.icon ? 'bg-blue-50 border-blue-500' : ''
-                          }`}
-                          onClick={() => setEditingConfig(prev => ({ ...prev, avatar_icon: avatar.icon }))}
-                        >
-                          <div className="mb-1 text-lg">{avatar.icon}</div>
-                          <div className="text-xs">{avatar.name}</div>
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-6 gap-2 max-h-48 overflow-y-auto">
+                      {avatarIcons.map((avatar) => {
+                        const IconComponent = avatar.icon
+                        const isSelected = editingConfig.avatar_icon === avatar.name
+                        
+                        return (
+                          <button
+                            key={avatar.name}
+                            className={`p-3 rounded-lg border text-center hover:bg-gray-50 transition-colors ${
+                              isSelected ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
+                            }`}
+                            onClick={() => setEditingConfig(prev => ({ ...prev, avatar_icon: avatar.name }))}
+                            title={avatar.name}
+                          >
+                            <IconComponent 
+                              className="w-6 h-6 mx-auto mb-1" 
+                              style={{ color: isSelected ? editingConfig.primary_color : avatar.color }}
+                            />
+                            <div className="text-xs font-medium truncate">{avatar.name}</div>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 </TabsContent>
@@ -794,14 +857,21 @@ function ChatbotsPageContent() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Preview</h3>
-                <Button variant="outline" size="sm" onClick={() => setEditingConfig(defaultConfig)}>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    setEditingConfig(defaultConfig)
+                    setEditingName(selectedChatbot?.name || '')
+                  }}
+                >
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Reset
                 </Button>
               </div>
               
               <div className="border rounded-lg">
-                <ChatbotPreview config={editingConfig} />
+                <ChatbotPreview config={editingConfig} name={editingName} />
               </div>
 
               {/* Save Button */}

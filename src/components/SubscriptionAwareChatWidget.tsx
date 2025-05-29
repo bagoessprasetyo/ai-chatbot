@@ -11,6 +11,7 @@ interface ChatMessage {
 }
 
 interface ChatbotConfig {
+  name: string
   theme: 'default' | 'minimal' | 'modern' | 'rounded' | 'floating'
   position: 'bottom-right' | 'bottom-left' | 'bottom-center'
   primary_color: string
@@ -57,6 +58,7 @@ export default function SubscriptionAwareChatWidget({
           
           // Build complete config object with all properties
           const chatbotConfig: ChatbotConfig = {
+            name: data.name || 'AI Assistant',
             theme: data.theme || 'default',
             position: data.position || 'bottom-right',
             primary_color: data.config?.primary_color || '#3B82F6',
@@ -93,6 +95,7 @@ export default function SubscriptionAwareChatWidget({
 
     const useDefaultConfig = () => {
       const defaultConfig: ChatbotConfig = {
+        name: 'AI Assistant',
         theme: 'default',
         position: 'bottom-right',
         primary_color: '#3B82F6',
@@ -325,7 +328,7 @@ export default function SubscriptionAwareChatWidget({
               {config.avatar_icon}
             </span>
           </div>
-          <span className="font-medium text-sm">AI Assistant</span>
+          <span className="font-medium text-sm">{config.name}</span>
         </div>
         <div className="flex items-center gap-1">
           <button
