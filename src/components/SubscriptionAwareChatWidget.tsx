@@ -98,7 +98,7 @@ export default function SubscriptionAwareChatWidget({
   const [isLoading, setIsLoading] = useState(false)
   const [config, setConfig] = useState<ChatbotConfig | null>(null)
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
-  
+  const API_BASE_URL = 'https://webbot-ai.netlify.app'; 
   // Contact form states
   const [formData, setFormData] = useState({
     name: '',
@@ -154,7 +154,7 @@ export default function SubscriptionAwareChatWidget({
     
     // Send contact info to API
     try {
-      await fetch('/api/chat/contact', {
+      await fetch(`${API_BASE_URL}/api/chat/contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -217,7 +217,7 @@ export default function SubscriptionAwareChatWidget({
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const response = await fetch(`/api/chatbot-config?chatbotId=${chatbotId}`)
+        const response = await fetch(`${API_BASE_URL}/api/chatbot-config?chatbotId=${chatbotId}`)
         if (response.ok) {
           const data = await response.json()
           
@@ -329,7 +329,7 @@ export default function SubscriptionAwareChatWidget({
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
