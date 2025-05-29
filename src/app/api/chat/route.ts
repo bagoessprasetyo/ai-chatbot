@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// src/app/api/chat/route.ts - Updated with usage tracking and subscription limits
+// src/app/api/chat/route.ts - Updated with CORS headers and usage tracking
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase-server'
 import OpenAI from 'openai'
@@ -22,14 +22,40 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+const getCORSHeaders = (origin: string | null): Headers => {
+  const headers = new Headers()
+  
+  // Always allow all origins for widget embedding
+  headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  headers.set('Access-Control-Max-Age', '86400')
+  headers.set('Access-Control-Allow-Credentials', 'false')
+  
+  // Additional headers for better compatibility
+  headers.set('Cache-Control', 'public, max-age=300')
+  headers.set('Vary', 'Origin')
+
+  return headers
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const headers = getCORSHeaders(origin)
+  return new NextResponse(null, { status: 204, headers })
+}
+
 export async function POST(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const headers = getCORSHeaders(origin)
+
   try {
     const { chatbotId, message, sessionId, conversationHistory = [] }: ChatRequest = await request.json()
     
     if (!chatbotId || !message || !sessionId) {
       return NextResponse.json(
         { error: 'Missing required fields: chatbotId, message, or sessionId' },
-        { status: 400 }
+        { status: 400, headers }
       )
     }
 
@@ -58,14 +84,14 @@ export async function POST(request: NextRequest) {
       console.error('Chatbot not found:', chatbotError)
       return NextResponse.json(
         { error: 'Chatbot not found or inactive' },
-        { status: 404 }
+        { status: 404, headers }
       )
     }
 
     if (!chatbot.websites?.system_prompt) {
       return NextResponse.json(
         { error: 'Chatbot not properly configured - missing system prompt' },
-        { status: 500 }
+        { status: 500, headers }
       )
     }
 
@@ -87,7 +113,7 @@ export async function POST(request: NextRequest) {
             error: 'Monthly conversation limit reached. Please upgrade your plan to continue.',
             type: 'limit_exceeded'
           },
-          { status: 429 }
+          { status: 429, headers }
         )
       }
 
@@ -100,7 +126,7 @@ export async function POST(request: NextRequest) {
               error: 'Free trial has expired. Please upgrade to continue using the service.',
               type: 'trial_expired'
             },
-            { status: 402 }
+            { status: 402, headers }
           )
         }
       }
@@ -112,7 +138,7 @@ export async function POST(request: NextRequest) {
             error: 'Subscription is not active. Please update your payment method.',
             type: 'subscription_inactive'
           },
-          { status: 402 }
+          { status: 402, headers }
         )
       }
     }
@@ -243,7 +269,7 @@ export async function POST(request: NextRequest) {
         limit: subscription.monthly_conversations_limit,
         remaining: subscription.monthly_conversations_limit - subscription.monthly_conversations_used - 1
       } : undefined
-    })
+    }, { headers })
 
   } catch (error: any) {
     console.error('💥 Chat API error:', error)
@@ -255,7 +281,7 @@ export async function POST(request: NextRequest) {
           error: 'AI service temporarily unavailable. Please try again later.',
           type: 'quota_exceeded'
         },
-        { status: 503 }
+        { status: 503, headers }
       )
     }
 
@@ -265,7 +291,7 @@ export async function POST(request: NextRequest) {
           error: 'Invalid request to AI service. Please try rephrasing your message.',
           type: 'invalid_request'
         },
-        { status: 400 }
+        { status: 400, headers }
       )
     }
 
@@ -274,13 +300,16 @@ export async function POST(request: NextRequest) {
         error: 'An unexpected error occurred. Please try again.',
         type: 'internal_error'
       },
-      { status: 500 }
+      { status: 500, headers }
     )
   }
 }
 
 // GET endpoint to retrieve conversation history
 export async function GET(request: NextRequest) {
+  const origin = request.headers.get('origin')
+  const headers = getCORSHeaders(origin)
+
   try {
     const { searchParams } = new URL(request.url)
     const chatbotId = searchParams.get('chatbotId')
@@ -289,7 +318,7 @@ export async function GET(request: NextRequest) {
     if (!chatbotId || !sessionId) {
       return NextResponse.json(
         { error: 'Missing chatbotId or sessionId' },
-        { status: 400 }
+        { status: 400, headers }
       )
     }
 
@@ -310,15 +339,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       conversationHistory: conversation?.messages || []
-    })
+    }, { headers })
 
   } catch (error: any) {
     console.error('Error retrieving conversation:', error)
     return NextResponse.json(
       { error: 'Failed to retrieve conversation history' },
-      { status: 500 }
+      { status: 500, headers }
     )
   }
 }
-
-// src/app/api/websites/[id]/status/route.ts - New endpoint for checking website status
