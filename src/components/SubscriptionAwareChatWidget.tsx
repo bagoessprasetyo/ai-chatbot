@@ -295,40 +295,13 @@ export default function SubscriptionAwareChatWidget({
     }
   }, [formData, validateForm, config, chatbotId, sessionId, API_BASE_URL])
 
-  // Sanitize input function
-  const sanitizeInput = useCallback((input: string): string => {
-    return input
-      .replace(/[<>\"'&]/g, '') // Remove HTML/script chars
-      .trim()
-      .substring(0, 500) // Limit length
-  }, [])
-
-  // Memoized input handlers to prevent re-renders
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const sanitizedValue = sanitizeInput(e.target.value)
-    setFormData(prev => ({ ...prev, name: sanitizedValue }))
-    if (formErrors.name) {
-      setFormErrors(prev => ({ ...prev, name: '' }))
+  const handleFormChange = useCallback((field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    // Clear error when user starts typing
+    if (formErrors[field]) {
+      setFormErrors(prev => ({ ...prev, [field]: '' }))
     }
-  }, [sanitizeInput, formErrors.name])
-
-  const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const sanitizedValue = sanitizeInput(e.target.value)
-    setFormData(prev => ({ ...prev, email: sanitizedValue }))
-    if (formErrors.email) {
-      setFormErrors(prev => ({ ...prev, email: '' }))
-    }
-  }, [sanitizeInput, formErrors.email])
-
-  const handleNotesChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const sanitizedValue = sanitizeInput(e.target.value)
-    setFormData(prev => ({ ...prev, notes: sanitizedValue }))
-  }, [sanitizeInput])
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const sanitizedValue = sanitizeInput(e.target.value)
-    setInputValue(sanitizedValue)
-  }, [sanitizeInput])
+  }, [formErrors])
 
   const renderAvatarIcon = useCallback((size: 'sm' | 'md' = 'md') => {
     if (!config) return null
@@ -583,7 +556,7 @@ export default function SubscriptionAwareChatWidget({
           <input
             type="text"
             value={formData.name}
-            onChange={handleNameChange}
+            onChange={(e) => handleFormChange('name', e.target.value)}
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
             style={{ 
               borderColor: formErrors.name ? '#EF4444' : '#E5E7EB',
@@ -602,7 +575,7 @@ export default function SubscriptionAwareChatWidget({
           <input
             type="email"
             value={formData.email}
-            onChange={handleEmailChange}
+            onChange={(e) => handleFormChange('email', e.target.value)}
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
             style={{ 
               borderColor: formErrors.email ? '#EF4444' : '#E5E7EB',
@@ -620,7 +593,7 @@ export default function SubscriptionAwareChatWidget({
           </label>
           <textarea
             value={formData.notes}
-            onChange={handleNotesChange}
+            onChange={(e) => handleFormChange('notes', e.target.value)}
             rows={3}
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 resize-none"
             style={{ borderColor: '#E5E7EB' }}
@@ -819,7 +792,7 @@ export default function SubscriptionAwareChatWidget({
                   <textarea
                     ref={inputRef}
                     value={inputValue}
-                    onChange={handleInputChange}
+                    onChange={(e) => setInputValue(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder={config?.placeholder_text}
                     disabled={isLoading}
