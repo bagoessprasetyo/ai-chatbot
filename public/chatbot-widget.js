@@ -71,7 +71,7 @@
     iframe.onerror = function() {
       console.error('WebBot AI: Failed to load widget iframe');
     };
-
+    iframe.setAttribute('allowtransparency', 'true'); // Some browsers respect this
     // Add iframe to document
     document.body.appendChild(iframe);
 

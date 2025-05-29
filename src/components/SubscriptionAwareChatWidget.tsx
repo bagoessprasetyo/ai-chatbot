@@ -552,7 +552,7 @@ export default function SubscriptionAwareChatWidget({
       ref={chatRef}
       className={`
         mb-4 shadow-2xl transition-all duration-300 ease-in-out overflow-hidden backdrop-blur-sm
-        ${isMinimized ? 'h-16' : 'h-[500px] w-[90vw] sm:w-[400px] md:w-[450px]'}
+        ${isMinimized ? 'h-16' : 'h-[600px] w-[90vw] sm:w-[400px] md:w-[450px]'}
         ${config.theme === 'minimal' ? 'border border-gray-200' : ''}
       `}
       style={chatWindowStyles}
