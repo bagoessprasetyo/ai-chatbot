@@ -46,8 +46,7 @@
       autoOpen: config.autoOpen !== undefined ? config.autoOpen : 
                 script.getAttribute('data-auto-open') === 'true',
       mode: config.mode || script.getAttribute('data-mode') || 'widget', // 'widget', 'iframe', 'popup'
-      baseUrl: config.baseUrl || script.getAttribute('data-base-url') || 
-               window.location.protocol + '//' + window.location.host
+      baseUrl: 'https://webbot-ai.netlify.app/'
     };
     
     // Create widget based on mode
