@@ -116,8 +116,8 @@
         border: none !important;
         background: transparent !important;
         background-color: transparent !important;
-        border-radius: 16px !important;
-        box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15) !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
         pointer-events: auto !important;
         opacity: 1 !important;
         outline: none !important;

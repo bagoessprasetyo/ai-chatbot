@@ -31,7 +31,7 @@ export default function EmbedPage() {
       const style = document.createElement('style')
       style.id = 'webbot-transparency'
       style.textContent = `
-        /* Force complete transparency */
+        /* Make iframe container transparent, but keep widget normal */
         html, body, #__next, #__next > div {
           background: transparent !important;
           background-color: transparent !important;
@@ -41,33 +41,12 @@ export default function EmbedPage() {
           overflow: hidden !important;
         }
         
-        /* Remove any default backgrounds */
-        *, *::before, *::after {
-          background-color: transparent !important;
-          background-image: none !important;
-        }
-        
-        /* Only widget elements can have backgrounds */
-        .chat-window,
-        .floating-button,
-        .message-bubble,
-        .contact-form,
-        .input-area,
-        .header-section,
-        .button,
-        .input,
-        .textarea,
-        .form-container,
-        .card {
-          background: white !important;
-          background-color: white !important;
-        }
-        
         /* iframe-specific widget behavior */
         .floating-button {
           display: none !important;
         }
         
+        /* Keep the chat widget with normal styling, just position it properly */
         .chat-window {
           position: relative !important;
           width: 100% !important;
@@ -78,8 +57,10 @@ export default function EmbedPage() {
           left: 0 !important;
           transform: none !important;
           border-radius: 8px !important;
-          box-shadow: none !important;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
           margin: 0 !important;
+          background: white !important;
+          background-color: white !important;
         }
         
         @media (max-width: 768px) {
