@@ -1,4 +1,4 @@
-// public/universal.js - Universal Widget Loader with Transparency Fix
+// public/universal.js - Universal Widget Loader (Fixed for transparency and cross-origin)
 (function() {
     'use strict';
     
@@ -32,12 +32,19 @@
                      'auto';
     
     function extractIdFromSrc(src) {
-      // Extract ID from URLs like: /universal.js?id=CHATBOT_ID or /widget/CHATBOT_ID.js
-      const urlParams = new URLSearchParams(src.split('?')[1]);
-      if (urlParams.get('id')) return urlParams.get('id');
+      if (!src) return null;
       
-      const match = src.match(/\/widget\/([^\.\/]+)\.js$/);
-      return match ? match[1] : null;
+      // Extract ID from URLs like: /universal.js?id=CHATBOT_ID or /widget/CHATBOT_ID.js
+      try {
+        const url = new URL(src);
+        const urlParams = new URLSearchParams(url.search);
+        if (urlParams.get('id')) return urlParams.get('id');
+        
+        const match = src.match(/\/widget\/([^\.\/]+)\.js$/);
+        return match ? match[1] : null;
+      } catch (e) {
+        return null;
+      }
     }
     
     if (!chatbotId) {
@@ -45,7 +52,7 @@
       return;
     }
     
-    console.log('WebBot Universal: Initializing with ID:', chatbotId);
+    console.log('WebBot Universal: Initializing with chatbot ID:', chatbotId);
     
     // Configuration options
     const options = {
@@ -53,8 +60,8 @@
       theme: config.theme || script.getAttribute('data-theme') || 'default',
       autoOpen: config.autoOpen !== undefined ? config.autoOpen : 
                 script.getAttribute('data-auto-open') === 'true',
-      mode: 'popup', // 'widget', 'iframe', 'popup'
-      baseUrl: 'https://webbot-ai.netlify.app/'
+      mode: config.mode || script.getAttribute('data-mode') || 'iframe', // Default to iframe for best compatibility
+      baseUrl: 'https://webbot-ai.netlify.app'
     };
     
     console.log('WebBot Universal: Configuration:', options);
@@ -68,20 +75,20 @@
       }
       
       switch (options.mode) {
-        case 'iframe':
-          createIframeWidget();
-          break;
         case 'popup':
           createPopupWidget();
           break;
         case 'widget':
-        default:
           createFloatingWidget();
+          break;
+        case 'iframe':
+        default:
+          createIframeWidget();
           break;
       }
     }
     
-    // Method 1: iframe widget (simplest, most compatible) - WITH TRANSPARENCY FIX
+    // Method 1: iframe widget (most compatible, transparent)
     function createIframeWidget() {
       console.log('WebBot Universal: Creating iframe widget');
       
@@ -101,9 +108,8 @@
       `;
       
       const iframe = document.createElement('iframe');
-      // KEY FIX: Add transparency parameters to URL
-      
-      iframe.src = `${options.baseUrl}/embed/${chatbotId}?websiteId=${websiteId}&mode=widget&transparent=true&iframe=true`;
+      // Add transparency parameters to URL
+      iframe.src = `${options.baseUrl}/embed/${chatbotId}?websiteId=${websiteId}&transparent=true&iframe=true&mode=widget`;
       iframe.style.cssText = `
         width: 100% !important;
         height: 100% !important;
@@ -117,32 +123,19 @@
         outline: none !important;
       `;
       
-      // TRANSPARENCY FIX: Set all necessary attributes
+      // Set transparency attributes (SAFE - no content access)
       iframe.setAttribute('allowtransparency', 'true');
       iframe.setAttribute('frameborder', '0');
       iframe.setAttribute('scrolling', 'no');
       iframe.setAttribute('seamless', 'seamless');
-      iframe.setAttribute('allowfullscreen', 'false');
       iframe.title = 'Chat Widget';
       
-      // Handle iframe load to ensure transparency
+      // Handle iframe load - SAFE (no cross-origin access)
       iframe.onload = function() {
         console.log('WebBot Universal: iframe loaded successfully');
-        try {
-          // Additional transparency enforcement
-          iframe.style.background = 'transparent';
-          iframe.style.backgroundColor = 'transparent';
-          
-          // Try to access iframe content if same-origin (will fail for cross-origin, which is fine)
-          if (iframe.contentDocument) {
-            const iframeDoc = iframe.contentDocument;
-            iframeDoc.documentElement.style.background = 'transparent';
-            iframeDoc.body.style.background = 'transparent';
-          }
-        } catch (e) {
-          // Cross-origin, but that's expected and fine
-          console.log('WebBot Universal: Cross-origin iframe (expected)');
-        }
+        // Only style the iframe element itself
+        iframe.style.background = 'transparent';
+        iframe.style.backgroundColor = 'transparent';
       };
       
       iframe.onerror = function() {
@@ -204,7 +197,7 @@
         console.log('WebBot Universal: Full widget script loaded');
       };
       widgetScript.onerror = () => {
-        console.error('WebBot Universal: Failed to load full widget script');
+        console.error('WebBot Universal: Failed to load full widget script, falling back to iframe');
         // Fallback to iframe mode
         options.mode = 'iframe';
         createIframeWidget();
@@ -262,7 +255,7 @@
           container.style.left = '10px !important';
           container.style.top = 'auto !important';
           container.style.transform = 'none !important';
-          iframe.style.borderRadius = '12px !important';
+          if (iframe) iframe.style.borderRadius = '12px !important';
         } else {
           container.style.width = '400px !important';
           container.style.height = '600px !important';
@@ -271,7 +264,7 @@
           container.style.left = 'auto !important';
           container.style.top = 'auto !important';
           container.style.transform = 'none !important';
-          iframe.style.borderRadius = '16px !important';
+          if (iframe) iframe.style.borderRadius = '16px !important';
         }
       }
       
@@ -353,6 +346,6 @@
     // Initialize
     init();
     
-    console.log('WebBot Universal: Initialized successfully');
+    console.log('WebBot Universal: Initialized successfully with transparency support');
     
   })();
