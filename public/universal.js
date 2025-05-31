@@ -54,16 +54,7 @@
       autoOpen: config.autoOpen !== undefined ? config.autoOpen : 
                 script.getAttribute('data-auto-open') === 'true',
       mode: config.mode || script.getAttribute('data-mode') || 'widget', // 'widget', 'iframe', 'popup'
-      baseUrl: config.baseUrl || script.getAttribute('data-base-url') || 
-               (function() {
-                 // Try to determine the base URL from the script source
-                 const scriptSrc = script.src;
-                 if (scriptSrc) {
-                   const url = new URL(scriptSrc);
-                   return url.origin;
-                 }
-                 return window.location.protocol + '//' + window.location.host;
-               })()
+      baseUrl: 'https://webbot-ai.netlify.app/'
     };
     
     console.log('WebBot Universal: Configuration:', options);
