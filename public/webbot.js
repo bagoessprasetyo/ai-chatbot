@@ -102,7 +102,7 @@
         z-index: 999999 !important;
         ${getPositionStyles()}
         width: 400px !important;
-        height: 600px !important;
+        height: 700px !important;
         max-width: calc(100vw - 40px) !important;
         max-height: calc(100vh - 40px) !important;
       `;

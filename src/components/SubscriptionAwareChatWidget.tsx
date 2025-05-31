@@ -1,4 +1,4 @@
-// src/components/SubscriptionAwareChatWidget.tsx - Optimized version with fixed re-rendering
+// src/components/SubscriptionAwareChatWidget.tsx - Fixed input focus issue
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
@@ -85,122 +85,6 @@ const avatarIcons = [
   { name: 'Gaming', icon: Gamepad2, color: '#7C2D12' }
 ]
 
-// Memoized ContactForm component to prevent unnecessary re-renders
-const ContactForm = memo(({ 
-  config, 
-  configError, 
-  formData, 
-  formErrors, 
-  onNameChange, 
-  onEmailChange, 
-  onNotesChange, 
-  onSubmit 
-}: {
-  config: ChatbotConfig | null
-  configError: string | null
-  formData: { name: string; email: string; notes: string }
-  formErrors: { [key: string]: string }
-  onNameChange: (value: string) => void
-  onEmailChange: (value: string) => void
-  onNotesChange: (value: string) => void
-  onSubmit: (e: React.FormEvent) => void
-}) => {
-  // Memoized handlers to prevent re-creation
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onNameChange(e.target.value)
-  }, [onNameChange])
-
-  const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onEmailChange(e.target.value)
-  }, [onEmailChange])
-
-  const handleNotesChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onNotesChange(e.target.value)
-  }, [onNotesChange])
-
-  return (
-    <div className="p-6 space-y-4">
-      <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold mb-2" style={{ color: config?.text_color }}>
-          Welcome! Let's get started
-        </h3>
-        <p className="text-sm text-gray-600">
-          Please provide your contact information to begin chatting with our AI assistant.
-        </p>
-        {configError && (
-          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-            ⚠️ Using fallback configuration: {configError}
-          </div>
-        )}
-      </div>
-      
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
-            Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={formData.name}
-            onChange={handleNameChange}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
-            style={{ 
-              borderColor: formErrors.name ? '#EF4444' : '#E5E7EB',
-            }}
-            placeholder="Enter your full name"
-          />
-          {formErrors.name && (
-            <p className="text-xs text-red-500 mt-1">{formErrors.name}</p>
-          )}
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
-            Email <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="email"
-            value={formData.email}
-            onChange={handleEmailChange}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
-            style={{ 
-              borderColor: formErrors.email ? '#EF4444' : '#E5E7EB',
-            }}
-            placeholder="Enter your email address"
-          />
-          {formErrors.email && (
-            <p className="text-xs text-red-500 mt-1">{formErrors.email}</p>
-          )}
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
-            Notes <span className="text-gray-400">(optional)</span>
-          </label>
-          <textarea
-            value={formData.notes}
-            onChange={handleNotesChange}
-            rows={3}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 resize-none"
-            style={{ borderColor: '#E5E7EB' }}
-            placeholder="Tell us what you'd like to discuss or ask about..."
-          />
-        </div>
-        
-        <button
-          type="submit"
-          className="w-full py-3 rounded-lg text-white font-medium transition-colors hover:opacity-90"
-          style={{ backgroundColor: config?.primary_color }}
-        >
-          Start Chatting
-        </button>
-      </form>
-    </div>
-  )
-})
-
-ContactForm.displayName = 'ContactForm'
-
 export default function SubscriptionAwareChatWidget({ 
   chatbotId, 
   websiteId 
@@ -217,6 +101,13 @@ export default function SubscriptionAwareChatWidget({
   const [configLoading, setConfigLoading] = useState(true)
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
   
+  // Contact form states - using individual state variables instead of object
+  const [formName, setFormName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formNotes, setFormNotes] = useState('')
+  const [nameError, setNameError] = useState('')
+  const [emailError, setEmailError] = useState('')
+  
   // Determine API base URL more dynamically
   const API_BASE_URL = useMemo(() => {
     // Try to get from window location if we're in an iframe
@@ -228,14 +119,6 @@ export default function SubscriptionAwareChatWidget({
     // Fallback to production API
     return 'https://webbot-ai.netlify.app'
   }, [])
-  
-  // Contact form states
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    notes: ''
-  })
-  const [formErrors, setFormErrors] = useState<{[key: string]: string}>({})
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -249,24 +132,22 @@ export default function SubscriptionAwareChatWidget({
       .substring(0, 500) // Limit length
   }, [])
 
-  // Optimized form handlers with stable references
-  const handleNameChange = useCallback((value: string) => {
-    const sanitizedValue = sanitizeInput(value)
-    setFormData(prev => ({ ...prev, name: sanitizedValue }))
-    // Clear error if exists
-    setFormErrors(prev => prev.name ? { ...prev, name: '' } : prev)
-  }, [sanitizeInput])
+  // Stable form handlers
+  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const sanitizedValue = sanitizeInput(e.target.value)
+    setFormName(sanitizedValue)
+    if (nameError) setNameError('')
+  }, [sanitizeInput, nameError])
 
-  const handleEmailChange = useCallback((value: string) => {
-    const sanitizedValue = sanitizeInput(value)
-    setFormData(prev => ({ ...prev, email: sanitizedValue }))
-    // Clear error if exists
-    setFormErrors(prev => prev.email ? { ...prev, email: '' } : prev)
-  }, [sanitizeInput])
+  const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const sanitizedValue = sanitizeInput(e.target.value)
+    setFormEmail(sanitizedValue)
+    if (emailError) setEmailError('')
+  }, [sanitizeInput, emailError])
 
-  const handleNotesChange = useCallback((value: string) => {
-    const sanitizedValue = sanitizeInput(value)
-    setFormData(prev => ({ ...prev, notes: sanitizedValue }))
+  const handleNotesChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const sanitizedValue = sanitizeInput(e.target.value)
+    setFormNotes(sanitizedValue)
   }, [sanitizeInput])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -388,21 +269,23 @@ export default function SubscriptionAwareChatWidget({
 
   // Contact form validation and submission
   const validateForm = useCallback(() => {
-    const errors: {[key: string]: string} = {}
+    let isValid = true
     
-    if (!formData.name.trim()) {
-      errors.name = 'Name is required'
+    if (!formName.trim()) {
+      setNameError('Name is required')
+      isValid = false
     }
     
-    if (!formData.email.trim()) {
-      errors.email = 'Email is required'
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      errors.email = 'Please enter a valid email address'
+    if (!formEmail.trim()) {
+      setEmailError('Email is required')
+      isValid = false
+    } else if (!/\S+@\S+\.\S+/.test(formEmail)) {
+      setEmailError('Please enter a valid email address')
+      isValid = false
     }
     
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }, [formData])
+    return isValid
+  }, [formName, formEmail])
 
   const handleContactSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
@@ -410,9 +293,9 @@ export default function SubscriptionAwareChatWidget({
     if (!validateForm()) return
     
     const contact: ContactInfo = {
-      name: formData.name.trim(),
-      email: formData.email.trim(),
-      notes: formData.notes.trim() || undefined
+      name: formName.trim(),
+      email: formEmail.trim(),
+      notes: formNotes.trim() || undefined
     }
     
     setContactInfo(contact)
@@ -442,7 +325,7 @@ export default function SubscriptionAwareChatWidget({
     } catch (error) {
       console.error('Failed to save contact info:', error)
     }
-  }, [formData, validateForm, config, chatbotId, sessionId, API_BASE_URL])
+  }, [formName, formEmail, formNotes, validateForm, config, chatbotId, sessionId, API_BASE_URL])
 
   const renderAvatarIcon = useCallback((size: 'sm' | 'md' = 'md') => {
     if (!config) return null
@@ -673,6 +556,86 @@ export default function SubscriptionAwareChatWidget({
     )
   }
 
+  const ContactForm = () => (
+    <div className="p-6 space-y-4">
+      <div className="text-center mb-6">
+        <h3 className="text-lg font-semibold mb-2" style={{ color: config?.text_color }}>
+          Welcome! Let's get started
+        </h3>
+        <p className="text-sm text-gray-600">
+          Please provide your contact information to begin chatting with our AI assistant.
+        </p>
+        {configError && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+            ⚠️ Using fallback configuration: {configError}
+          </div>
+        )}
+      </div>
+      
+      <form onSubmit={handleContactSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+            Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={formName}
+            onChange={handleNameChange}
+            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
+            style={{ 
+              borderColor: nameError ? '#EF4444' : '#E5E7EB',
+            }}
+            placeholder="Enter your full name"
+          />
+          {nameError && (
+            <p className="text-xs text-red-500 mt-1">{nameError}</p>
+          )}
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+            Email <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="email"
+            value={formEmail}
+            onChange={handleEmailChange}
+            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
+            style={{ 
+              borderColor: emailError ? '#EF4444' : '#E5E7EB',
+            }}
+            placeholder="Enter your email address"
+          />
+          {emailError && (
+            <p className="text-xs text-red-500 mt-1">{emailError}</p>
+          )}
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+            Notes <span className="text-gray-400">(optional)</span>
+          </label>
+          <textarea
+            value={formNotes}
+            onChange={handleNotesChange}
+            rows={3}
+            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 resize-none"
+            style={{ borderColor: '#E5E7EB' }}
+            placeholder="Tell us what you'd like to discuss or ask about..."
+          />
+        </div>
+        
+        <button
+          type="submit"
+          className="w-full py-3 rounded-lg text-white font-medium transition-colors hover:opacity-90"
+          style={{ backgroundColor: config?.primary_color }}
+        >
+          Start Chatting
+        </button>
+      </form>
+    </div>
+  )
+
   const FloatingButton = () => (
     <button
       onClick={() => setIsOpen(true)}
@@ -739,16 +702,7 @@ export default function SubscriptionAwareChatWidget({
       {!isMinimized && (
         <>
           {showContactForm ? (
-            <ContactForm 
-              config={config}
-              configError={configError}
-              formData={formData}
-              formErrors={formErrors}
-              onNameChange={handleNameChange}
-              onEmailChange={handleEmailChange}
-              onNotesChange={handleNotesChange}
-              onSubmit={handleContactSubmit}
-            />
+            <ContactForm />
           ) : (
             <>
               {/* Messages */}
