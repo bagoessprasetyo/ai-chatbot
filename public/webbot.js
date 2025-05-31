@@ -53,7 +53,7 @@
       theme: config.theme || script.getAttribute('data-theme') || 'default',
       autoOpen: config.autoOpen !== undefined ? config.autoOpen : 
                 script.getAttribute('data-auto-open') === 'true',
-      mode: config.mode || script.getAttribute('data-mode') || 'widget', // 'widget', 'iframe', 'popup'
+      mode: 'iframe', // 'widget', 'iframe', 'popup'
       baseUrl: 'https://webbot-ai.netlify.app/'
     };
     
