@@ -227,27 +227,39 @@ const ContactForm = React.memo(({
 
 ContactForm.displayName = 'ContactForm'
 
-// Isolated chat input component
+// Completely isolated chat input component with its own state
 const ChatInput = React.memo(({ 
-  value, 
-  onChange, 
   onSend, 
-  onKeyPress, 
   placeholder, 
   disabled, 
   textColor, 
   primaryColor 
 }: {
-  value: string
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  onSend: () => void
-  onKeyPress: (e: React.KeyboardEvent) => void
+  onSend: (message: string) => void
   placeholder: string
   disabled: boolean
   textColor: string
   primaryColor: string
 }) => {
+  const [value, setValue] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value.slice(0, 500))
+  }, [])
+
+  const handleSend = useCallback(() => {
+    if (!value.trim() || disabled) return
+    onSend(value.trim())
+    setValue('')
+  }, [value, disabled, onSend])
+
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }, [handleSend])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -258,8 +270,8 @@ const ChatInput = React.memo(({
       <Textarea
         ref={inputRef}
         value={value}
-        onChange={onChange}
-        onKeyPress={onKeyPress}
+        onChange={handleChange}
+        onKeyPress={handleKeyPress}
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
@@ -285,7 +297,7 @@ const ChatInput = React.memo(({
           <Mic className="w-4 h-4 text-gray-400" />
         </button>
         <button
-          onClick={onSend}
+          onClick={handleSend}
           disabled={!value.trim() || disabled}
           className="p-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2"
           style={{ 
@@ -312,7 +324,6 @@ export default function SubscriptionAwareChatWidget({
   const [showContactForm, setShowContactForm] = useState(true)
   const [contactInfo, setContactInfo] = useState<ContactInfo | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [config, setConfig] = useState<ChatbotConfig | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
@@ -446,7 +457,7 @@ export default function SubscriptionAwareChatWidget({
     fetchConfig()
   }, [chatbotId, websiteId, API_BASE_URL])
 
-  // Stable contact form submission handler
+  // Enhanced contact form submission handler with proper database saving
   const handleContactSubmit = useCallback(async (contactData: ContactInfo) => {
     setContactInfo(contactData)
     setShowContactForm(false)
@@ -460,27 +471,128 @@ export default function SubscriptionAwareChatWidget({
       }])
     }
     
-    // Send contact info to API
+    // Send contact info to Supabase Edge Function for proper database saving
     try {
-      await fetch(`${API_BASE_URL}/api/chat/contact`, {
+      console.log('Saving contact info:', contactData)
+      
+      const response = await fetch(`https://dxepbnoagmdqlxeyybla.supabase.co/functions/v1/save-contact`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          chatbotId,
+          sessionId,
+          contactInfo: contactData,
+          // Add additional fields for compatibility
+          name: contactData.name,
+          email: contactData.email,
+          notes: contactData.notes
+        })
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Failed to save contact info:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        })
+      } else {
+        const result = await response.json()
+        console.log('Contact info saved successfully:', result)
+      }
+    } catch (error) {
+      console.error('Failed to save contact info:', error)
+      
+      // Fallback to original API endpoint
+      try {
+        await fetch(`${API_BASE_URL}/api/chat/contact`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          credentials: 'omit',
+          body: JSON.stringify({
+            chatbotId,
+            sessionId,
+            contactInfo: contactData
+          })
+        })
+      } catch (fallbackError) {
+        console.error('Fallback contact save also failed:', fallbackError)
+      }
+    }
+  }, [config, chatbotId, sessionId, API_BASE_URL])
+
+  // Stable input change handler - now receives the message from ChatInput
+  const handleMessageSend = useCallback(async (message: string) => {
+    if (!message.trim() || isLoading || !config || !contactInfo) return
+
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: message.trim(),
+      timestamp: new Date().toISOString()
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    setIsLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'omit',
         body: JSON.stringify({
           chatbotId,
+          message: userMessage.content,
           sessionId,
-          contactInfo: contactData
+          contactInfo,
+          conversationHistory: messages
         })
       })
-    } catch (error) {
-      console.error('Failed to save contact info:', error)
-    }
-  }, [config, chatbotId, sessionId, API_BASE_URL])
 
-  // Stable input change handler
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value.slice(0, 500)) // Simple length limit
-  }, [])
+      const data = await response.json()
+
+      if (response.ok) {
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content: data.message,
+          timestamp: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, assistantMessage])
+      } else {
+        let errorContent = "I'm sorry, I'm having trouble responding right now. Please try again in a moment."
+        
+        if (data.type === 'limit_exceeded') {
+          errorContent = "I'm sorry, but the monthly conversation limit has been reached. Please contact the website owner to upgrade their plan for continued service."
+        } else if (data.type === 'trial_expired') {
+          errorContent = "I'm sorry, but the free trial has expired. Please contact the website owner to activate their subscription."
+        } else if (data.type === 'subscription_inactive') {
+          errorContent = "I'm sorry, but the subscription is not active. Please contact the website owner to update their payment method."
+        }
+
+        const errorMessage: ChatMessage = {
+          role: 'assistant',
+          content: errorContent,
+          timestamp: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, errorMessage])
+      }
+    } catch (error) {
+      console.error('Chat error:', error)
+      const errorMessage: ChatMessage = {
+        role: 'assistant',
+        content: "I'm sorry, I'm having trouble connecting right now. Please try again later.",
+        timestamp: new Date().toISOString()
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL])
 
   const renderAvatarIcon = useCallback((size: 'sm' | 'md' = 'md') => {
     if (!config) return null
@@ -552,79 +664,7 @@ export default function SubscriptionAwareChatWidget({
     em: ({ children }: any) => <em className="italic">{children}</em>,
   }), [])
 
-  const sendMessage = useCallback(async () => {
-    if (!inputValue.trim() || isLoading || !config || !contactInfo) return
 
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: inputValue.trim(),
-      timestamp: new Date().toISOString()
-    }
-
-    setMessages(prev => [...prev, userMessage])
-    setInputValue('')
-    setIsLoading(true)
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'omit',
-        body: JSON.stringify({
-          chatbotId,
-          message: userMessage.content,
-          sessionId,
-          contactInfo,
-          conversationHistory: messages
-        })
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: data.message,
-          timestamp: new Date().toISOString()
-        }
-        setMessages(prev => [...prev, assistantMessage])
-      } else {
-        let errorContent = "I'm sorry, I'm having trouble responding right now. Please try again in a moment."
-        
-        if (data.type === 'limit_exceeded') {
-          errorContent = "I'm sorry, but the monthly conversation limit has been reached. Please contact the website owner to upgrade their plan for continued service."
-        } else if (data.type === 'trial_expired') {
-          errorContent = "I'm sorry, but the free trial has expired. Please contact the website owner to activate their subscription."
-        } else if (data.type === 'subscription_inactive') {
-          errorContent = "I'm sorry, but the subscription is not active. Please contact the website owner to update their payment method."
-        }
-
-        const errorMessage: ChatMessage = {
-          role: 'assistant',
-          content: errorContent,
-          timestamp: new Date().toISOString()
-        }
-        setMessages(prev => [...prev, errorMessage])
-      }
-    } catch (error) {
-      console.error('Chat error:', error)
-      const errorMessage: ChatMessage = {
-        role: 'assistant',
-        content: "I'm sorry, I'm having trouble connecting right now. Please try again later.",
-        timestamp: new Date().toISOString()
-      }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [inputValue, isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL])
-
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }, [sendMessage])
 
   // Memoized style objects to prevent re-renders
   const positionStyles = useMemo(() => {
@@ -884,10 +924,7 @@ export default function SubscriptionAwareChatWidget({
               {/* Input */}
               <div className="p-4 border-t border-gray-100" style={{ backgroundColor: config?.background_color }}>
                 <ChatInput
-                  value={inputValue}
-                  onChange={handleInputChange}
-                  onSend={sendMessage}
-                  onKeyPress={handleKeyPress}
+                  onSend={handleMessageSend}
                   placeholder={config?.placeholder_text || 'Type your message...'}
                   disabled={isLoading}
                   textColor={config?.text_color || '#1F2937'}
