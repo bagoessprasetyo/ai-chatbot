@@ -7,6 +7,10 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 // Import all the icons used in the dashboard
 import { 
   Bot, 
@@ -132,7 +136,7 @@ export default function SubscriptionAwareChatWidget({
       .substring(0, 500) // Limit length
   }, [])
 
-  // Stable form handlers
+  // Stable form handlers for shadcn components
   const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const sanitizedValue = sanitizeInput(e.target.value)
     setFormName(sanitizedValue)
@@ -573,65 +577,61 @@ export default function SubscriptionAwareChatWidget({
       </div>
       
       <form onSubmit={handleContactSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+        <div className="space-y-2">
+          <Label htmlFor="name" style={{ color: config?.text_color }}>
             Name <span className="text-red-500">*</span>
-          </label>
-          <input
+          </Label>
+          <Input
+            id="name"
             type="text"
             value={formName}
             onChange={handleNameChange}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
-            style={{ 
-              borderColor: nameError ? '#EF4444' : '#E5E7EB',
-            }}
             placeholder="Enter your full name"
+            className={nameError ? "border-red-500" : ""}
           />
           {nameError && (
-            <p className="text-xs text-red-500 mt-1">{nameError}</p>
+            <p className="text-xs text-red-500">{nameError}</p>
           )}
         </div>
         
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+        <div className="space-y-2">
+          <Label htmlFor="email" style={{ color: config?.text_color }}>
             Email <span className="text-red-500">*</span>
-          </label>
-          <input
+          </Label>
+          <Input
+            id="email"
             type="email"
             value={formEmail}
             onChange={handleEmailChange}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
-            style={{ 
-              borderColor: emailError ? '#EF4444' : '#E5E7EB',
-            }}
             placeholder="Enter your email address"
+            className={emailError ? "border-red-500" : ""}
           />
           {emailError && (
-            <p className="text-xs text-red-500 mt-1">{emailError}</p>
+            <p className="text-xs text-red-500">{emailError}</p>
           )}
         </div>
         
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: config?.text_color }}>
+        <div className="space-y-2">
+          <Label htmlFor="notes" style={{ color: config?.text_color }}>
             Notes <span className="text-gray-400">(optional)</span>
-          </label>
-          <textarea
+          </Label>
+          <Textarea
+            id="notes"
             value={formNotes}
             onChange={handleNotesChange}
             rows={3}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50 resize-none"
-            style={{ borderColor: '#E5E7EB' }}
             placeholder="Tell us what you'd like to discuss or ask about..."
+            className="resize-none"
           />
         </div>
         
-        <button
+        <Button
           type="submit"
-          className="w-full py-3 rounded-lg text-white font-medium transition-colors hover:opacity-90"
+          className="w-full"
           style={{ backgroundColor: config?.primary_color }}
         >
           Start Chatting
-        </button>
+        </Button>
       </form>
     </div>
   )
@@ -813,7 +813,7 @@ export default function SubscriptionAwareChatWidget({
               <div className="p-4 border-t border-gray-100" style={{ backgroundColor: config?.background_color }}>
                 <div className="relative rounded-lg border bg-white focus-within:ring-2 focus-within:ring-opacity-50" 
                      style={{ borderColor: '#E5E7EB' }}>
-                  <textarea
+                  <Textarea
                     ref={inputRef}
                     value={inputValue}
                     onChange={handleInputChange}
@@ -821,7 +821,7 @@ export default function SubscriptionAwareChatWidget({
                     placeholder={config?.placeholder_text}
                     disabled={isLoading}
                     rows={1}
-                    className="w-full px-4 py-3 pr-24 text-sm border-0 rounded-lg resize-none focus:outline-none max-h-32 min-h-[48px]"
+                    className="border-0 rounded-lg resize-none focus:outline-none focus:ring-0 max-h-32 min-h-[48px] pr-24"
                     style={{ 
                       color: config?.text_color,
                       backgroundColor: 'white'
