@@ -40,7 +40,7 @@
     // Create iframe
     const iframe = document.createElement('iframe');
     iframe.id = 'webbot-ai-widget';
-    iframe.src = `https://webbot-ai.netlify.app/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
+    iframe.src = `http://localhost:3000/widget?chatbotId=${encodeURIComponent(chatbotId)}&websiteId=${encodeURIComponent(websiteId)}`;
     iframe.title = 'WebBot AI Chat Widget';
     
     // Fixed iframe styles - proper floating widget dimensions
@@ -97,7 +97,7 @@
     // Handle messages from iframe
     window.addEventListener('message', function(event) {
       // Verify origin for security
-      if (event.origin !== 'https://webbot-ai.netlify.app') {
+      if (event.origin !== 'http://localhost:3000') {
         return;
       }
 
@@ -212,7 +212,7 @@
     toggle: function() {
       const iframe = document.getElementById('webbot-ai-widget');
       if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'webbot-toggle' }, 'https://webbot-ai.netlify.app');
+        iframe.contentWindow.postMessage({ type: 'webbot-toggle' }, 'http://localhost:3000');
       }
     }
   };

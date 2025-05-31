@@ -1,18 +1,15 @@
-// src/app/api/chatbot-config/route.ts - Fixed relationship query
+// src/app/api/chatbot-config/route.ts - Version with Service Role Key
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 
 const getCORSHeaders = (origin: string | null): Headers => {
   const headers = new Headers()
   
-  // Always allow all origins for widget embedding
   headers.set('Access-Control-Allow-Origin', '*')
   headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
   headers.set('Access-Control-Max-Age', '86400')
   headers.set('Access-Control-Allow-Credentials', 'false')
-  
-  // Additional headers for better compatibility
   headers.set('Cache-Control', 'public, max-age=300')
   headers.set('Vary', 'Origin')
 
@@ -43,40 +40,72 @@ export async function GET(request: NextRequest) {
       }, { status: 400, headers })
     }
 
-    const supabase = createServerClient()
+    // FIXED: Use service role client to bypass RLS
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
 
-    // FIXED: Use proper query with explicit join instead of nested select
-    const { data, error } = await supabase
+    // Query chatbot
+    const { data: chatbot, error: chatbotError } = await supabase
       .from('chatbots')
       .select(`
         id,
         name,
         config,
         is_active,
-        website_id,
-        websites!inner (
-          id,
-          title,
-          url
-        )
+        website_id
       `)
       .eq('id', chatbotId)
       .eq('is_active', true)
       .single()
 
-    if (error) {
-      console.error('Database error:', error)
+    if (chatbotError) {
+      console.error('Chatbot query error:', chatbotError)
+      
+      if (chatbotError.code === 'PGRST116') {
+        return NextResponse.json({ 
+          error: 'Chatbot not found or inactive',
+          debug: { chatbotId, websiteId, error: 'No active chatbot found with this ID' }
+        }, { status: 404, headers })
+      }
+      
       return NextResponse.json({ 
         error: 'Database error',
-        debug: { error: error.message, code: error.code, chatbotId }
+        debug: { error: chatbotError.message, code: chatbotError.code, chatbotId }
       }, { status: 500, headers })
     }
 
-    if (!data) {
+    if (!chatbot) {
       return NextResponse.json({ 
         error: 'Chatbot not found or inactive',
         debug: { chatbotId }
       }, { status: 404, headers })
+    }
+
+    // Query website
+    const { data: website, error: websiteError } = await supabase
+      .from('websites')
+      .select('id, title, url')
+      .eq('id', chatbot.website_id)
+      .single()
+
+    if (websiteError) {
+      console.error('Website query error:', websiteError)
+    }
+
+    // Validate websiteId if provided
+    if (websiteId && website && website.id !== websiteId) {
+      console.warn('Website ID mismatch:', { 
+        providedWebsiteId: websiteId, 
+        actualWebsiteId: website.id 
+      })
     }
 
     const defaultConfig = {
@@ -88,37 +117,38 @@ export async function GET(request: NextRequest) {
       background_color: '#FFFFFF',
       border_radius: 12,
       avatar_style: 'bot',
-      avatar_icon: '🤖',
-      welcome_message: `Hello! I'm here to help you with any questions about ${data.websites?.[0]?.title || 'our website'}. How can I assist you today?`,
+      avatar_icon: 'Bot',
+      welcome_message: `Hello! I'm here to help you with any questions about ${website?.title || 'our website'}. How can I assist you today?`,
       placeholder_text: 'Type your message...',
       animation_style: 'none',
       bubble_style: 'modern',
       show_branding: true
     }
 
-    const config = { ...defaultConfig, ...data.config }
+    const config = { ...defaultConfig, ...chatbot.config }
 
     const response = {
       success: true,
-      id: data.id,
-      name: data.name,
+      id: chatbot.id,
+      name: chatbot.name,
       config,
-      is_active: data.is_active,
+      is_active: chatbot.is_active,
       welcome_message: config.welcome_message,
       theme: config.theme,
       position: config.position,
-      website_id: data.websites?.[0]?.id,
-      website_title: data.websites?.[0]?.title,
-      website_url: data.websites?.[0]?.url,
+      website_id: website?.id || chatbot.website_id,
+      website_title: website?.title || 'Website',
+      website_url: website?.url || '',
       debug: {
         origin,
         chatbotId,
         websiteId,
+        websiteFound: !!website,
         timestamp: new Date().toISOString()
       }
     }
 
-    console.log('Config response successful:', { chatbotId, origin })
+    console.log('Config response successful:', { chatbotId, origin, websiteFound: !!website })
     return NextResponse.json(response, { headers })
 
   } catch (error) {
