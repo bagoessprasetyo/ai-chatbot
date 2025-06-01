@@ -360,9 +360,56 @@ export default function SubscriptionAwareChatWidget({
   const SESSION_STORAGE_KEY = `webbot_session_${chatbotId}_${websiteId}`
   const CONTACT_STORAGE_KEY = `webbot_contact_${chatbotId}_${websiteId}`
 
+  // Load conversation from database if localStorage is empty but session exists
+  const loadConversationFromDatabase = useCallback(async (sessionIdToLoad: string) => {
+    try {
+      const response = await fetch(`/api/chat/conversation?sessionId=${encodeURIComponent(sessionIdToLoad)}&chatbotId=${encodeURIComponent(chatbotId)}`)
+      
+      if (response.ok) {
+        const result = await response.json()
+        
+        if (result.success && result.conversation) {
+          const conversation = result.conversation
+          
+          // Set messages from database
+          if (conversation.messages && Array.isArray(conversation.messages)) {
+            setMessages(conversation.messages)
+            console.log('Loaded conversation from database:', conversation.messages.length, 'messages')
+          }
+          
+          // Set contact info from database if not already set
+          if (!contactInfo && conversation.contact_name && conversation.contact_email) {
+            const dbContactInfo = {
+              name: conversation.contact_name,
+              email: conversation.contact_email,
+              notes: conversation.contact_notes || undefined
+            }
+            setContactInfo(dbContactInfo)
+            setShowContactForm(false)
+            
+            // Also save to localStorage for future use
+            try {
+              if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.setItem(CONTACT_STORAGE_KEY, JSON.stringify(dbContactInfo))
+              }
+            } catch (error) {
+              console.error('Failed to save contact info to localStorage:', error)
+            }
+          }
+          
+          return true
+        }
+      }
+    } catch (error) {
+      console.error('Error loading conversation from database:', error)
+    }
+    
+    return false
+  }, [chatbotId, contactInfo, CONTACT_STORAGE_KEY])
+
   // Load existing session on mount
   useEffect(() => {
-    const loadExistingSession = () => {
+    const loadExistingSession = async () => {
       try {
         // Check if localStorage is available
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -382,7 +429,10 @@ export default function SubscriptionAwareChatWidget({
               setContactInfo(contactData)
               setShowContactForm(false)
               setMessages(sessionData.messages || [])
-              console.log('Loaded existing session:', sessionData.sessionId)
+              console.log('Loaded existing session from localStorage:', sessionData.sessionId)
+              
+              // Also try to load any newer messages from database
+              await loadConversationFromDatabase(sessionData.sessionId)
             } else {
               // Session too old, clear it
               localStorage.removeItem(SESSION_STORAGE_KEY)
@@ -410,7 +460,7 @@ export default function SubscriptionAwareChatWidget({
     }
 
     loadExistingSession()
-  }, [chatbotId, websiteId, SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY])
+  }, [chatbotId, websiteId, SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY, loadConversationFromDatabase])
 
   // Enhanced config fetching with better error handling and retries
   useEffect(() => {
@@ -548,13 +598,20 @@ export default function SubscriptionAwareChatWidget({
     }
     
     // Initialize chat with welcome message
+    let initialMessages: ChatMessage[] = []
     if (config) {
       const welcomeMessage = {
         role: 'assistant' as const,
         content: `Hello ${contactData.name}! ${config.welcome_message}`,
         timestamp: new Date().toISOString()
       }
-      setMessages([welcomeMessage])
+      initialMessages = [welcomeMessage]
+      setMessages(initialMessages)
+    }
+    
+    // Save initial conversation to database
+    if (initialMessages.length > 0) {
+      await saveConversationToDatabase(initialMessages)
     }
     
     // Send contact info to Supabase Edge Function for proper database saving
@@ -611,8 +668,39 @@ export default function SubscriptionAwareChatWidget({
       }
     }
   }, [config, chatbotId, sessionId, API_BASE_URL, SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY])
+  
+  const saveConversationToDatabase = useCallback(async (messagesToSave: ChatMessage[]) => {
+    if (!sessionId || !contactInfo || !chatbotId || messagesToSave.length === 0) {
+      return
+    }
 
-  // Enhanced message send handler
+    try {
+      const response = await fetch('/api/chat/conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chatbotId,
+          sessionId,
+          messages: messagesToSave,
+          contactInfo,
+          websiteId
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Failed to save conversation to database:', errorData)
+      } else {
+        const result = await response.json()
+        console.log('Conversation saved to database:', result)
+      }
+    } catch (error) {
+      console.error('Error saving conversation to database:', error)
+    }
+  }, [chatbotId, sessionId, contactInfo, websiteId])
+  // Enhanced message send handler with database saving
   const handleMessageSend = useCallback(async (message: string) => {
     if (!message.trim() || isLoading || !config || !contactInfo) return
 
@@ -622,7 +710,8 @@ export default function SubscriptionAwareChatWidget({
       timestamp: new Date().toISOString()
     }
 
-    setMessages(prev => [...prev, userMessage])
+    const updatedMessages = [...messages, userMessage]
+    setMessages(updatedMessages)
     setIsLoading(true)
 
     try {
@@ -647,7 +736,13 @@ export default function SubscriptionAwareChatWidget({
           content: data.message,
           timestamp: new Date().toISOString()
         }
-        setMessages(prev => [...prev, assistantMessage])
+        
+        const finalMessages = [...updatedMessages, assistantMessage]
+        setMessages(finalMessages)
+        
+        // Save complete conversation to database after AI response
+        await saveConversationToDatabase(finalMessages)
+        
       } else {
         let errorContent = "I'm sorry, I'm having trouble responding right now. Please try again in a moment."
         
@@ -664,7 +759,12 @@ export default function SubscriptionAwareChatWidget({
           content: errorContent,
           timestamp: new Date().toISOString()
         }
-        setMessages(prev => [...prev, errorMessage])
+        
+        const finalMessages = [...updatedMessages, errorMessage]
+        setMessages(finalMessages)
+        
+        // Save error message to database as well
+        await saveConversationToDatabase(finalMessages)
       }
     } catch (error) {
       console.error('Chat error:', error)
@@ -673,15 +773,24 @@ export default function SubscriptionAwareChatWidget({
         content: "I'm sorry, I'm having trouble connecting right now. Please try again later.",
         timestamp: new Date().toISOString()
       }
-      setMessages(prev => [...prev, errorMessage])
+      
+      const finalMessages = [...updatedMessages, errorMessage]
+      setMessages(finalMessages)
+      
+      // Save error message to database
+      await saveConversationToDatabase(finalMessages)
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL])
+  }, [isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL, saveConversationToDatabase])
 
-  // Save messages to localStorage whenever they change
+  // Save messages to both localStorage and database
+  
+
+  // Save messages to localStorage and database whenever they change
   useEffect(() => {
     if (sessionLoaded && sessionId && messages.length > 0 && contactInfo) {
+      // Save to localStorage
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           const sessionData = {
@@ -696,8 +805,15 @@ export default function SubscriptionAwareChatWidget({
       } catch (error) {
         console.error('Failed to save messages to localStorage:', error)
       }
+
+      // Save to database (debounced to avoid too many API calls)
+      const timeoutId = setTimeout(() => {
+        saveConversationToDatabase(messages)
+      }, 1000) // Wait 1 second after last message change
+
+      return () => clearTimeout(timeoutId)
     }
-  }, [messages, sessionLoaded, sessionId, chatbotId, websiteId, contactInfo, SESSION_STORAGE_KEY])
+  }, [messages, sessionLoaded, sessionId, chatbotId, websiteId, contactInfo, SESSION_STORAGE_KEY, saveConversationToDatabase])
 
   // Function to end the current session
   const endSession = useCallback(() => {
@@ -927,7 +1043,7 @@ export default function SubscriptionAwareChatWidget({
     >
       {/* Header */}
       <div 
-        className="flex items-center justify-between p-4 backdrop-blur-sm"
+        className="flex items-center justify-between p-4 mt-4 backdrop-blur-sm"
         style={headerStyles}
       >
         <div className="flex items-center gap-3">
@@ -1109,7 +1225,7 @@ export default function SubscriptionAwareChatWidget({
                     <span className="text-xs" style={{ color: '#9CA3AF' }}>
                       Powered by{' '}
                       <a 
-                        href="https://webbot.ai" 
+                        href="https://webbot-ai.netlify.app/" 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="hover:underline transition-colors"
