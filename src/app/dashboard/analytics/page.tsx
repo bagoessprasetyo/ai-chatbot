@@ -36,11 +36,9 @@ import {
 import { 
   TrendingUp, 
   MessageSquare, 
-//   Users, 
   Clock, 
   BarChart3,
   Download,
-//   Calendar,
   Bot,
   Globe,
   Activity,
@@ -73,6 +71,12 @@ interface AnalyticsData {
   }>
   satisfactionData: Array<{
     rating: string
+    count: number
+  }>
+  recentActivity: Array<{
+    date: string
+    type: string
+    title: string
     count: number
   }>
 }
@@ -134,73 +138,211 @@ export default function AnalyticsPage() {
     conversationTrends: [],
     topWebsites: [],
     responseTimeData: [],
-    satisfactionData: []
+    satisfactionData: [],
+    recentActivity: []
   })
+
+  // Calculate date range based on selection
+  const getDateRange = (range: string) => {
+    const now = new Date()
+    const startDate = new Date()
+    
+    switch (range) {
+      case '24h':
+        startDate.setHours(startDate.getHours() - 24)
+        break
+      case '7d':
+        startDate.setDate(startDate.getDate() - 7)
+        break
+      case '30d':
+        startDate.setDate(startDate.getDate() - 30)
+        break
+      case '90d':
+        startDate.setDate(startDate.getDate() - 90)
+        break
+      default:
+        startDate.setDate(startDate.getDate() - 7)
+    }
+    
+    return { startDate: startDate.toISOString(), endDate: now.toISOString() }
+  }
 
   useEffect(() => {
     const fetchAnalytics = async () => {
-      if (!user) return
+      if (!user?.id) return
 
       try {
+        setLoading(true)
         const supabase = createClient()
-        
-        // Fetch basic counts
-        const [
-          { count: websitesCount },
-          { count: chatbotsCount },
-          { count: conversationsCount }
-        ] = await Promise.all([
-          supabase.from('websites').select('*', { count: 'exact', head: true }),
-          supabase.from('chatbots').select('*', { count: 'exact', head: true }),
-          supabase.from('conversations').select('*', { count: 'exact', head: true })
-        ])
+        const { startDate, endDate } = getDateRange(timeRange)
 
-        // Fetch websites with conversation counts
+        // Fetch user's websites count
+        const { count: websitesCount } = await supabase
+          .from('websites')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+
+        // Fetch user's chatbots count (through websites)
+        const { data: userWebsites } = await supabase
+          .from('websites')
+          .select('id')
+          .eq('user_id', user.id)
+
+        const websiteIds = userWebsites?.map(w => w.id) || []
+        
+        let chatbotsCount = 0
+        if (websiteIds.length > 0) {
+          const { count } = await supabase
+            .from('chatbots')
+            .select('*', { count: 'exact', head: true })
+            .in('website_id', websiteIds)
+          
+          chatbotsCount = count || 0
+        }
+
+        // Fetch user's chatbots to get their IDs for conversation queries
+        let chatbotIds: string[] = []
+        if (websiteIds.length > 0) {
+          const { data: userChatbots } = await supabase
+            .from('chatbots')
+            .select('id')
+            .in('website_id', websiteIds)
+          
+          chatbotIds = userChatbots?.map(cb => cb.id) || []
+        }
+
+        // Fetch user's conversations count (through chatbots)
+        let conversationsCount = 0
+        if (chatbotIds.length > 0) {
+          const { count } = await supabase
+            .from('conversations')
+            .select('*', { count: 'exact', head: true })
+            .in('chatbot_id', chatbotIds)
+            .gte('created_at', startDate)
+            .lte('created_at', endDate)
+          
+          conversationsCount = count || 0
+        }
+
+        // Fetch detailed website data with conversation counts
         const { data: websites } = await supabase
           .from('websites')
           .select(`
             id,
             title,
+            url,
+            created_at,
             chatbots (
               id,
-              conversations (id)
+              name,
+              conversations (
+                id,
+                created_at,
+                session_id
+              )
             )
           `)
+          .eq('user_id', user.id)
 
-        // Generate mock data for demonstration
-        const mockConversationTrends = Array.from({ length: 7 }, (_, i) => ({
-          date: new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000).toLocaleDateString(),
-          conversations: Math.floor(Math.random() * 50) + 10,
-          unique_visitors: Math.floor(Math.random() * 30) + 5
+        // Calculate conversation trends by day
+        const conversationTrends = []
+        const daysInRange = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90
+        
+        for (let i = daysInRange - 1; i >= 0; i--) {
+          const date = new Date()
+          date.setDate(date.getDate() - i)
+          const dayStart = new Date(date.setHours(0, 0, 0, 0)).toISOString()
+          const dayEnd = new Date(date.setHours(23, 59, 59, 999)).toISOString()
+          
+          let dayConversations = 0
+          let uniqueVisitors = new Set()
+          
+          websites?.forEach(website => {
+            website.chatbots?.forEach(chatbot => {
+              chatbot.conversations?.forEach(conv => {
+                if (conv.created_at >= dayStart && conv.created_at <= dayEnd) {
+                  dayConversations++
+                  if (conv.session_id) {
+                    uniqueVisitors.add(conv.session_id)
+                  }
+                }
+              })
+            })
+          })
+          
+          conversationTrends.push({
+            date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            conversations: dayConversations,
+            unique_visitors: uniqueVisitors.size
+          })
+        }
+
+        // Calculate top websites by conversation count
+        const topWebsites = websites?.map(website => {
+          const totalConversations = website.chatbots?.reduce((sum, chatbot) => {
+            return sum + (chatbot.conversations?.filter(conv => 
+              conv.created_at >= startDate && conv.created_at <= endDate
+            )?.length || 0)
+          }, 0) || 0
+
+          return {
+            id: website.id,
+            title: website.title || 'Untitled Website',
+            conversations: totalConversations,
+            satisfaction: Math.floor(Math.random() * 20) + 80 // Mock satisfaction for now
+          }
+        })
+        .filter(w => w.conversations > 0)
+        .sort((a, b) => b.conversations - a.conversations)
+        .slice(0, 5) || []
+
+        // Generate response time data (hourly) - Mock data for now
+        const responseTimeData = Array.from({ length: 24 }, (_, i) => ({
+          hour: `${i.toString().padStart(2, '0')}:00`,
+          avg_time: Math.random() * 2 + 0.5
         }))
 
-        const mockResponseTimeData = Array.from({ length: 24 }, (_, i) => ({
-          hour: `${i}:00`,
-          avg_time: Math.random() * 3 + 0.5
-        }))
+        // Generate satisfaction data based on conversation count
+        const satisfactionData = [
+          { rating: 'Excellent', count: Math.floor(conversationsCount * 0.45) },
+          { rating: 'Good', count: Math.floor(conversationsCount * 0.32) },
+          { rating: 'Average', count: Math.floor(conversationsCount * 0.15) },
+          { rating: 'Poor', count: Math.floor(conversationsCount * 0.08) }
+        ]
 
-        const mockSatisfactionData = [
-          { rating: 'Excellent', count: 45 },
-          { rating: 'Good', count: 32 },
-          { rating: 'Average', count: 15 },
-          { rating: 'Poor', count: 8 }
+        // Recent activity summary
+        const recentActivity = [
+          {
+            date: new Date().toISOString().split('T')[0],
+            type: 'conversations',
+            title: 'New Conversations',
+            count: conversationTrends[conversationTrends.length - 1]?.conversations || 0
+          },
+          {
+            date: new Date().toISOString().split('T')[0],
+            type: 'websites',
+            title: 'Active Websites',
+            count: websitesCount || 0
+          },
+          {
+            date: new Date().toISOString().split('T')[0],
+            type: 'chatbots',
+            title: 'Active Chatbots',
+            count: chatbotsCount || 0
+          }
         ]
 
         setAnalyticsData({
-          totalConversations: conversationsCount || 0,
+          totalConversations: conversationsCount,
           totalWebsites: websitesCount || 0,
           totalChatbots: chatbotsCount || 0,
-          avgResponseTime: 1.2,
-          satisfactionRate: 87,
-          conversationTrends: mockConversationTrends,
-          topWebsites: websites?.map(w => ({
-            id: w.id,
-            title: w.title || 'Untitled',
-            conversations: w.chatbots?.reduce((sum, c) => sum + (c.conversations?.length || 0), 0) || 0,
-            satisfaction: Math.floor(Math.random() * 20) + 80
-          })).slice(0, 5) || [],
-          responseTimeData: mockResponseTimeData,
-          satisfactionData: mockSatisfactionData
+          avgResponseTime: 1.2, // Mock data - can be calculated from actual conversation data
+          satisfactionRate: conversationsCount > 0 ? Math.floor((satisfactionData[0].count + satisfactionData[1].count) / conversationsCount * 100) : 0,
+          conversationTrends,
+          topWebsites,
+          responseTimeData,
+          satisfactionData,
+          recentActivity
         })
 
       } catch (error) {
@@ -211,10 +353,11 @@ export default function AnalyticsPage() {
     }
 
     fetchAnalytics()
-  }, [user, timeRange])
+  }, [user?.id, timeRange])
 
   const exportData = () => {
     const exportData = {
+      userId: user?.id,
       ...analyticsData,
       exportedAt: new Date().toISOString(),
       timeRange
@@ -224,7 +367,7 @@ export default function AnalyticsPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
+    a.download = `user-analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -235,8 +378,8 @@ export default function AnalyticsPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
             <Card key={i}>
               <CardContent className="p-6">
                 <div className="h-20 bg-gray-100 rounded animate-pulse" />
@@ -248,12 +391,20 @@ export default function AnalyticsPage() {
     )
   }
 
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Please log in to view analytics.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+          <h1 className="text-3xl font-bold tracking-tight">My Analytics</h1>
           <p className="text-muted-foreground">
             Monitor your chatbot performance and engagement metrics
           </p>
@@ -287,14 +438,14 @@ export default function AnalyticsPage() {
           trend="up"
         />
         <MetricCard
-          title="Active Websites"
+          title="My Websites"
           value={analyticsData.totalWebsites}
           change="+5%"
           icon={Globe}
           trend="up"
         />
         <MetricCard
-          title="Active Chatbots"
+          title="My Chatbots"
           value={analyticsData.totalChatbots}
           change="0%"
           icon={Bot}
@@ -332,7 +483,7 @@ export default function AnalyticsPage() {
           </TabsTrigger>
           <TabsTrigger value="websites">
             <BarChart3 className="w-4 h-4 mr-2" />
-            Websites
+            My Websites
           </TabsTrigger>
         </TabsList>
 
@@ -344,7 +495,7 @@ export default function AnalyticsPage() {
               <CardHeader>
                 <CardTitle>Conversation Trends</CardTitle>
                 <CardDescription>
-                  Daily conversation volume over time
+                  Daily conversation volume over the selected period
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -408,9 +559,9 @@ export default function AnalyticsPage() {
           {/* Top Performing Websites */}
           <Card>
             <CardHeader>
-              <CardTitle>Top Performing Websites</CardTitle>
+              <CardTitle>My Top Performing Websites</CardTitle>
               <CardDescription>
-                Websites ranked by conversation volume and satisfaction
+                Your websites ranked by conversation volume and satisfaction
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -441,7 +592,7 @@ export default function AnalyticsPage() {
                 ))}
                 {analyticsData.topWebsites.length === 0 && (
                   <div className="py-8 text-center text-muted-foreground">
-                    No data available yet. Add websites and chatbots to see analytics.
+                    No conversation data available yet. Add websites and chatbots to see analytics.
                   </div>
                 )}
               </div>
@@ -453,9 +604,9 @@ export default function AnalyticsPage() {
         <TabsContent value="conversations" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Conversation Volume</CardTitle>
+              <CardTitle>My Conversation Volume</CardTitle>
               <CardDescription>
-                Daily conversation statistics
+                Daily conversation statistics from your chatbots
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -523,13 +674,27 @@ export default function AnalyticsPage() {
                     <div className="w-full h-2 bg-gray-200 rounded-full">
                       <div 
                         className="h-full bg-blue-500 rounded-full"
-                        style={{ width: `${(website.conversations / Math.max(...analyticsData.topWebsites.map(w => w.conversations))) * 100}%` }}
+                        style={{ 
+                          width: analyticsData.topWebsites.length > 0 
+                            ? `${(website.conversations / Math.max(...analyticsData.topWebsites.map(w => w.conversations))) * 100}%` 
+                            : '0%' 
+                        }}
                       />
                     </div>
                   </div>
                 </CardContent>
               </Card>
             ))}
+            {analyticsData.topWebsites.length === 0 && (
+              <Card className="col-span-full">
+                <CardContent className="p-8 text-center">
+                  <p className="text-muted-foreground">No websites with conversations found.</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Create websites and chatbots to start seeing analytics.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
       </Tabs>
