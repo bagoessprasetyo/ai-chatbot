@@ -33,11 +33,21 @@ const WebsitesPage = () => {
     const fetchWebsites = async () => {
       try {
         const supabase = createClient();
+        
+        // Get the current user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !user) {
+          console.error('Authentication error:', authError);
+          return;
+        }
+    
         const { data, error } = await supabase
           .from('websites')
           .select('*')
+          .eq('user_id', user.id)  // Filter by current user's ID
           .order('created_at', { ascending: false });
-
+    
         if (error) throw error;
         setWebsites(data || []);
       } catch (error) {
@@ -61,11 +71,11 @@ const WebsitesPage = () => {
 
     if (user) {
       fetchWebsites();
-      fetchQueueStats();
+      // fetchQueueStats();
       
       // Refresh queue stats every 30 seconds
-      const interval = setInterval(fetchQueueStats, 30000);
-      return () => clearInterval(interval);
+      // const interval = setInterval(fetchQueueStats, 30000);
+      // return () => clearInterval(interval);
     }
   }, [user]);
 
