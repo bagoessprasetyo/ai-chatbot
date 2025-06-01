@@ -1,6 +1,20 @@
-// src/app/api/chat/conversation/route.ts - Save conversations to database
+// src/app/api/chat/conversation/route.ts - Save conversations with anonymous access
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+// Create Supabase client with anonymous access for external widget usage
+function createAnonClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false, // Don't persist session for API routes
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,15 +34,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    // Validate messages array
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json(
+        { error: 'Messages must be a non-empty array' },
+        { status: 400 }
+      )
+    }
+
+    // Validate contact info
+    if (!contactInfo.name || !contactInfo.email) {
+      return NextResponse.json(
+        { error: 'Contact info must include name and email' },
+        { status: 400 }
+      )
+    }
+
+    const supabase = createAnonClient()
 
     // Check if conversation already exists
-    const { data: existingConversation } = await supabase
+    const { data: existingConversation, error: selectError } = await supabase
       .from('conversations')
       .select('id')
       .eq('session_id', sessionId)
       .eq('chatbot_id', chatbotId)
-      .single()
+      .maybeSingle() // Use maybeSingle instead of single to avoid errors when no rows found
+
+    if (selectError) {
+      console.error('Error checking existing conversation:', selectError)
+      return NextResponse.json(
+        { error: 'Failed to check existing conversation' },
+        { status: 500 }
+      )
+    }
 
     if (existingConversation) {
       // Update existing conversation
@@ -38,18 +76,16 @@ export async function POST(request: NextRequest) {
           messages: messages,
           updated_at: new Date().toISOString(),
           // Update contact info if provided
-          ...(contactInfo && {
-            contact_name: contactInfo.name,
-            contact_email: contactInfo.email,
-            contact_notes: contactInfo.notes
-          })
+          contact_name: contactInfo.name,
+          contact_email: contactInfo.email,
+          contact_notes: contactInfo.notes || null
         })
         .eq('id', existingConversation.id)
 
       if (updateError) {
         console.error('Error updating conversation:', updateError)
         return NextResponse.json(
-          { error: 'Failed to update conversation' },
+          { error: 'Failed to update conversation', details: updateError.message },
           { status: 500 }
         )
       }
@@ -80,7 +116,7 @@ export async function POST(request: NextRequest) {
       if (insertError) {
         console.error('Error creating conversation:', insertError)
         return NextResponse.json(
-          { error: 'Failed to create conversation' },
+          { error: 'Failed to create conversation', details: insertError.message },
           { status: 500 }
         )
       }
@@ -95,7 +131,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error in conversation API:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
@@ -114,7 +150,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = createAnonClient()
 
     // Get conversation by session ID and chatbot ID
     const { data: conversation, error } = await supabase
@@ -122,34 +158,38 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('session_id', sessionId)
       .eq('chatbot_id', chatbotId)
-      .single()
+      .maybeSingle() // Use maybeSingle to avoid errors when no rows found
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        // No conversation found
-        return NextResponse.json({ 
-          success: true, 
-          conversation: null 
-        })
-      }
-      
       console.error('Error fetching conversation:', error)
       return NextResponse.json(
-        { error: 'Failed to fetch conversation' },
+        { error: 'Failed to fetch conversation', details: error.message },
         { status: 500 }
       )
     }
 
     return NextResponse.json({ 
       success: true, 
-      conversation 
+      conversation: conversation || null 
     })
 
   } catch (error) {
     console.error('Error in conversation GET API:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
+}
+
+// OPTIONS handler for CORS preflight requests
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  })
 }
