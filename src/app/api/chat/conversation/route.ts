@@ -1,4 +1,4 @@
-// src/app/api/chat/conversation/route.ts - Save conversations with anonymous access
+// src/app/api/chat/conversation/route.ts - Fixed with proper CORS headers
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -16,6 +16,15 @@ function createAnonClient() {
   })
 }
 
+// Helper function to add CORS headers
+function addCorsHeaders(response: NextResponse) {
+  response.headers.set('Access-Control-Allow-Origin', '*')
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  response.headers.set('Access-Control-Max-Age', '86400')
+  return response
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { 
@@ -28,26 +37,29 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!chatbotId || !sessionId || !messages || !contactInfo) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Missing required fields: chatbotId, sessionId, messages, contactInfo' },
         { status: 400 }
       )
+      return addCorsHeaders(response)
     }
 
     // Validate messages array
     if (!Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Messages must be a non-empty array' },
         { status: 400 }
       )
+      return addCorsHeaders(response)
     }
 
     // Validate contact info
     if (!contactInfo.name || !contactInfo.email) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Contact info must include name and email' },
         { status: 400 }
       )
+      return addCorsHeaders(response)
     }
 
     const supabase = createAnonClient()
@@ -62,10 +74,11 @@ export async function POST(request: NextRequest) {
 
     if (selectError) {
       console.error('Error checking existing conversation:', selectError)
-      return NextResponse.json(
-        { error: 'Failed to check existing conversation' },
+      const response = NextResponse.json(
+        { error: 'Failed to check existing conversation', details: selectError.message },
         { status: 500 }
       )
+      return addCorsHeaders(response)
     }
 
     if (existingConversation) {
@@ -84,17 +97,19 @@ export async function POST(request: NextRequest) {
 
       if (updateError) {
         console.error('Error updating conversation:', updateError)
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Failed to update conversation', details: updateError.message },
           { status: 500 }
         )
+        return addCorsHeaders(response)
       }
 
-      return NextResponse.json({ 
+      const response = NextResponse.json({ 
         success: true, 
         action: 'updated',
         conversationId: existingConversation.id 
       })
+      return addCorsHeaders(response)
     } else {
       // Create new conversation
       const { data: newConversation, error: insertError } = await supabase
@@ -115,25 +130,28 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         console.error('Error creating conversation:', insertError)
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Failed to create conversation', details: insertError.message },
           { status: 500 }
         )
+        return addCorsHeaders(response)
       }
 
-      return NextResponse.json({ 
+      const response = NextResponse.json({ 
         success: true, 
         action: 'created',
         conversationId: newConversation.id 
       })
+      return addCorsHeaders(response)
     }
 
   } catch (error) {
     console.error('Error in conversation API:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
+    return addCorsHeaders(response)
   }
 }
 
@@ -144,10 +162,11 @@ export async function GET(request: NextRequest) {
     const chatbotId = searchParams.get('chatbotId')
 
     if (!sessionId || !chatbotId) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Missing sessionId or chatbotId' },
         { status: 400 }
       )
+      return addCorsHeaders(response)
     }
 
     const supabase = createAnonClient()
@@ -162,34 +181,31 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching conversation:', error)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to fetch conversation', details: error.message },
         { status: 500 }
       )
+      return addCorsHeaders(response)
     }
 
-    return NextResponse.json({ 
+    const response = NextResponse.json({ 
       success: true, 
       conversation: conversation || null 
     })
+    return addCorsHeaders(response)
 
   } catch (error) {
     console.error('Error in conversation GET API:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
+    return addCorsHeaders(response)
   }
 }
 
 // OPTIONS handler for CORS preflight requests
 export async function OPTIONS(request: NextRequest) {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  })
+  const response = new NextResponse(null, { status: 200 })
+  return addCorsHeaders(response)
 }
