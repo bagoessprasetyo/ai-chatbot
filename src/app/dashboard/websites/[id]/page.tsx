@@ -121,15 +121,11 @@ export default function WebsiteDetailPage() {
   const copyEmbedCode = async () => {
     if (!website || !chatbot) return
     
-    const embedCode = `<script>
-  (function() {
-    var script = document.createElement('script');
-    script.src = '${window.location.origin}/chatbot-widget.js';
-    script.setAttribute('data-chatbot-id', '${chatbot.id}');
-    script.setAttribute('data-website-id', '${website.id}');
-    document.head.appendChild(script);
-  })();
-</script>`
+    const embedCode = `<script 
+        async src="https://webbot-ai.netlify.app/webbot.js" 
+        data-chatbot-id="${chatbot.id}" 
+        data-website-id="${website.id}"
+></script>`
 
     try {
       await navigator.clipboard.writeText(embedCode)
@@ -475,15 +471,11 @@ export default function WebsiteDetailPage() {
                       <Textarea 
                         className="h-32 font-mono text-sm resize-none bg-muted"
                         readOnly
-                        value={`<script>
-(function() {
-  var script = document.createElement('script');
-  script.src = '${typeof window !== 'undefined' ? window.location.origin : ''}/chatbot-widget.js';
-  script.setAttribute('data-chatbot-id', '${chatbot.id}');
-  script.setAttribute('data-website-id', '${website.id}');
-  document.head.appendChild(script);
-})();
-</script>`}
+                        value={`<script 
+        async src="https://webbot-ai.netlify.app/webbot.js" 
+        data-chatbot-id="${chatbot.id}" 
+        data-website-id="${website.id}"
+></script>`}
                       />
                       <Button 
                         variant="secondary" 
