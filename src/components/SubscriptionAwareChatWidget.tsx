@@ -1,4 +1,4 @@
-// src/components/SubscriptionAwareChatWidget.tsx - Complete fix for re-rendering
+// src/components/SubscriptionAwareChatWidget.tsx - Enhanced with Persistent Sessions
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -89,15 +89,17 @@ const avatarIcons = [
   { name: 'Gaming', icon: Gamepad2, color: '#7C2D12' }
 ]
 
-// Completely isolated ContactForm component with React.memo
+// Enhanced ContactForm component with returning user support
 const ContactForm = React.memo(({ 
   config, 
   configError, 
-  onSubmit 
+  onSubmit,
+  isReturningUser = false
 }: {
   config: ChatbotConfig | null
   configError: string | null
   onSubmit: (data: ContactInfo) => void
+  isReturningUser?: boolean
 }) => {
   // Local state - completely isolated from parent
   const [name, setName] = useState('')
@@ -152,14 +154,22 @@ const ContactForm = React.memo(({
     <div className="p-6 space-y-4">
       <div className="text-center mb-6">
         <h3 className="text-lg font-semibold mb-2" style={{ color: config?.text_color }}>
-          Welcome! Let's get started
+          {isReturningUser ? 'Welcome back!' : 'Welcome! Let\'s get started'}
         </h3>
         <p className="text-sm text-gray-600">
-          Please provide your contact information to begin chatting with our AI assistant.
+          {isReturningUser 
+            ? 'Please provide your contact information to continue our conversation.'
+            : 'Please provide your contact information to begin chatting with our AI assistant.'
+          }
         </p>
         {configError && (
           <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
             ⚠️ Using fallback configuration: {configError}
+          </div>
+        )}
+        {isReturningUser && (
+          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+            💡 This will start a new conversation session
           </div>
         )}
       </div>
@@ -218,7 +228,7 @@ const ContactForm = React.memo(({
           className="w-full"
           style={{ backgroundColor: config?.primary_color }}
         >
-          Start Chatting
+          {isReturningUser ? 'Continue Conversation' : 'Start Chatting'}
         </Button>
       </form>
     </div>
@@ -227,7 +237,7 @@ const ContactForm = React.memo(({
 
 ContactForm.displayName = 'ContactForm'
 
-// Completely isolated chat input component with its own state
+// Enhanced chat input component
 const ChatInput = React.memo(({ 
   onSend, 
   placeholder, 
@@ -328,7 +338,8 @@ export default function SubscriptionAwareChatWidget({
   const [config, setConfig] = useState<ChatbotConfig | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
+  const [sessionId, setSessionId] = useState<string>('')
+  const [sessionLoaded, setSessionLoaded] = useState(false)
   
   // Determine API base URL more dynamically
   const API_BASE_URL = useMemo(() => {
@@ -344,6 +355,62 @@ export default function SubscriptionAwareChatWidget({
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
+  
+  // Session storage keys
+  const SESSION_STORAGE_KEY = `webbot_session_${chatbotId}_${websiteId}`
+  const CONTACT_STORAGE_KEY = `webbot_contact_${chatbotId}_${websiteId}`
+
+  // Load existing session on mount
+  useEffect(() => {
+    const loadExistingSession = () => {
+      try {
+        // Check if localStorage is available
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const existingSession = localStorage.getItem(SESSION_STORAGE_KEY)
+          const existingContact = localStorage.getItem(CONTACT_STORAGE_KEY)
+          
+          if (existingSession && existingContact) {
+            const sessionData = JSON.parse(existingSession)
+            const contactData = JSON.parse(existingContact)
+            
+            // Validate session data (check if it's not too old, e.g., 30 days)
+            const sessionAge = Date.now() - sessionData.createdAt
+            const maxAge = 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
+            
+            if (sessionAge < maxAge) {
+              setSessionId(sessionData.sessionId)
+              setContactInfo(contactData)
+              setShowContactForm(false)
+              setMessages(sessionData.messages || [])
+              console.log('Loaded existing session:', sessionData.sessionId)
+            } else {
+              // Session too old, clear it
+              localStorage.removeItem(SESSION_STORAGE_KEY)
+              localStorage.removeItem(CONTACT_STORAGE_KEY)
+              setSessionId(generateNewSessionId())
+            }
+          } else {
+            // No existing session, create new one
+            setSessionId(generateNewSessionId())
+          }
+        } else {
+          // localStorage not available, create new session
+          setSessionId(generateNewSessionId())
+        }
+      } catch (error) {
+        console.error('Error loading session:', error)
+        setSessionId(generateNewSessionId())
+      } finally {
+        setSessionLoaded(true)
+      }
+    }
+
+    const generateNewSessionId = () => {
+      return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    }
+
+    loadExistingSession()
+  }, [chatbotId, websiteId, SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY])
 
   // Enhanced config fetching with better error handling and retries
   useEffect(() => {
@@ -365,7 +432,6 @@ export default function SubscriptionAwareChatWidget({
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          // Don't include credentials for cross-origin requests
           credentials: 'omit'
         })
 
@@ -423,7 +489,7 @@ export default function SubscriptionAwareChatWidget({
         if (retryCount < maxRetries) {
           retryCount++
           console.log(`Retrying config fetch (${retryCount}/${maxRetries})...`)
-          setTimeout(() => fetchConfig(), 1000 * retryCount) // Exponential backoff
+          setTimeout(() => fetchConfig(), 1000 * retryCount)
           return
         }
         
@@ -457,18 +523,38 @@ export default function SubscriptionAwareChatWidget({
     fetchConfig()
   }, [chatbotId, websiteId, API_BASE_URL])
 
-  // Enhanced contact form submission handler with proper database saving
+  // Enhanced contact form submission handler with persistent session saving
   const handleContactSubmit = useCallback(async (contactData: ContactInfo) => {
     setContactInfo(contactData)
     setShowContactForm(false)
     
+    // Save session and contact data to localStorage
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const sessionData = {
+          sessionId,
+          createdAt: Date.now(),
+          chatbotId,
+          websiteId,
+          messages: []
+        }
+        
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData))
+        localStorage.setItem(CONTACT_STORAGE_KEY, JSON.stringify(contactData))
+        console.log('Session saved to localStorage:', sessionId)
+      }
+    } catch (error) {
+      console.error('Failed to save session to localStorage:', error)
+    }
+    
     // Initialize chat with welcome message
     if (config) {
-      setMessages([{
-        role: 'assistant',
+      const welcomeMessage = {
+        role: 'assistant' as const,
         content: `Hello ${contactData.name}! ${config.welcome_message}`,
         timestamp: new Date().toISOString()
-      }])
+      }
+      setMessages([welcomeMessage])
     }
     
     // Send contact info to Supabase Edge Function for proper database saving
@@ -485,7 +571,6 @@ export default function SubscriptionAwareChatWidget({
           chatbotId,
           sessionId,
           contactInfo: contactData,
-          // Add additional fields for compatibility
           name: contactData.name,
           email: contactData.email,
           notes: contactData.notes
@@ -525,9 +610,9 @@ export default function SubscriptionAwareChatWidget({
         console.error('Fallback contact save also failed:', fallbackError)
       }
     }
-  }, [config, chatbotId, sessionId, API_BASE_URL])
+  }, [config, chatbotId, sessionId, API_BASE_URL, SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY])
 
-  // Stable input change handler - now receives the message from ChatInput
+  // Enhanced message send handler
   const handleMessageSend = useCallback(async (message: string) => {
     if (!message.trim() || isLoading || !config || !contactInfo) return
 
@@ -593,6 +678,55 @@ export default function SubscriptionAwareChatWidget({
       setIsLoading(false)
     }
   }, [isLoading, config, contactInfo, chatbotId, sessionId, messages, API_BASE_URL])
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (sessionLoaded && sessionId && messages.length > 0 && contactInfo) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const sessionData = {
+            sessionId,
+            createdAt: Date.now(),
+            chatbotId,
+            websiteId,
+            messages
+          }
+          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData))
+        }
+      } catch (error) {
+        console.error('Failed to save messages to localStorage:', error)
+      }
+    }
+  }, [messages, sessionLoaded, sessionId, chatbotId, websiteId, contactInfo, SESSION_STORAGE_KEY])
+
+  // Function to end the current session
+  const endSession = useCallback(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(SESSION_STORAGE_KEY)
+        localStorage.removeItem(CONTACT_STORAGE_KEY)
+      }
+    } catch (error) {
+      console.error('Failed to clear session data:', error)
+    }
+    
+    // Reset state
+    setContactInfo(null)
+    setShowContactForm(true)
+    setMessages([])
+    setIsOpen(false)
+    
+    // Generate new session ID
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    setSessionId(newSessionId)
+    
+    console.log('Session ended, new session created:', newSessionId)
+  }, [SESSION_STORAGE_KEY, CONTACT_STORAGE_KEY])
+
+  // Function to check if user has an active session
+  const hasActiveSession = useCallback(() => {
+    return contactInfo !== null && !showContactForm
+  }, [contactInfo, showContactForm])
 
   const renderAvatarIcon = useCallback((size: 'sm' | 'md' = 'md') => {
     if (!config) return null
@@ -664,8 +798,6 @@ export default function SubscriptionAwareChatWidget({
     em: ({ children }: any) => <em className="italic">{children}</em>,
   }), [])
 
-
-
   // Memoized style objects to prevent re-renders
   const positionStyles = useMemo(() => {
     if (!config) return ''
@@ -723,7 +855,7 @@ export default function SubscriptionAwareChatWidget({
   }, [config])
 
   // Loading state
-  if (configLoading) {
+  if (configLoading || !sessionLoaded) {
     return (
       <div className="fixed bottom-5 right-5 z-[999999]">
         <div className="w-14 h-14 bg-gray-200 rounded-full animate-pulse flex items-center justify-center">
@@ -745,19 +877,42 @@ export default function SubscriptionAwareChatWidget({
   }
 
   const FloatingButton = () => (
-    <button
-      onClick={() => setIsOpen(true)}
-      className={`
-        w-14 h-14 shadow-lg transition-all duration-300 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2
-        flex items-center justify-center group hover:shadow-xl
-        ${animationClass}
-      `}
-      style={floatingButtonStyles}
-      aria-label="Open chat"
-      title={configError ? `⚠️ ${configError}` : undefined}
-    >
-      {renderAvatarIcon()}
-    </button>
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(true)}
+        className={`
+          w-14 h-14 shadow-lg transition-all duration-300 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2
+          flex items-center justify-center group hover:shadow-xl
+          ${animationClass}
+        `}
+        style={floatingButtonStyles}
+        aria-label="Open chat"
+        title={configError ? `⚠️ ${configError}` : (hasActiveSession() ? 'Continue conversation' : 'Start new conversation')}
+      >
+        {renderAvatarIcon()}
+      </button>
+      
+      {/* Active session indicator */}
+      {hasActiveSession() && (
+        <div 
+          className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: config?.primary_color }}
+          title="Active session"
+        >
+          <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+        </div>
+      )}
+      
+      {/* New message indicator (if needed) */}
+      {messages.length > 1 && hasActiveSession() && (
+        <div 
+          className="absolute -top-1 -left-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold"
+          title={`${messages.length - 1} messages`}
+        >
+          {messages.length - 1 > 9 ? '9+' : messages.length - 1}
+        </div>
+      )}
+    </div>
   )
 
   const ChatWindow = () => (
@@ -785,11 +940,22 @@ export default function SubscriptionAwareChatWidget({
           <div>
             <span className="font-semibold text-sm">{config?.name}</span>
             <p className="text-xs opacity-90">
-              {configError ? '⚠️ Limited functionality' : 'Online now'}
+              {configError ? '⚠️ Limited functionality' : 
+               hasActiveSession() ? 'Session active' : 'Online now'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {hasActiveSession() && (
+            <button
+              onClick={endSession}
+              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+              aria-label="End session"
+              title="End session and start over"
+            >
+              <span className="text-xs">End</span>
+            </button>
+          )}
           <button
             onClick={() => setIsMinimized(!isMinimized)}
             className="p-2 hover:bg-white/20 rounded-lg transition-colors"
@@ -814,6 +980,7 @@ export default function SubscriptionAwareChatWidget({
               config={config}
               configError={configError}
               onSubmit={handleContactSubmit}
+              isReturningUser={sessionLoaded && contactInfo !== null}
             />
           ) : (
             <>
@@ -950,6 +1117,16 @@ export default function SubscriptionAwareChatWidget({
                       >
                         WebBot AI
                       </a>
+                      {hasActiveSession() && (
+                        <span className="block mt-1">
+                          Session active • <button 
+                            onClick={endSession}
+                            className="hover:underline text-gray-400"
+                          >
+                            End session
+                          </button>
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}

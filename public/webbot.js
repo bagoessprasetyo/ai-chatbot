@@ -1,4 +1,4 @@
-// public/universal.js - Universal Widget Loader (Fixed for transparency and cross-origin)
+// public/webbot.js - Enhanced Universal Widget Loader with Session Support
 (function() {
     'use strict';
     
@@ -34,7 +34,7 @@
     function extractIdFromSrc(src) {
       if (!src) return null;
       
-      // Extract ID from URLs like: /universal.js?id=CHATBOT_ID or /widget/CHATBOT_ID.js
+      // Extract ID from URLs like: /webbot.js?id=CHATBOT_ID or /widget/CHATBOT_ID.js
       try {
         const url = new URL(src);
         const urlParams = new URLSearchParams(url.search);
@@ -60,11 +60,67 @@
       theme: config.theme || script.getAttribute('data-theme') || 'default',
       autoOpen: config.autoOpen !== undefined ? config.autoOpen : 
                 script.getAttribute('data-auto-open') === 'true',
-      mode: config.mode || script.getAttribute('data-mode') || 'iframe', // Default to iframe for best compatibility
-      baseUrl: 'https://webbot-ai.netlify.app'
+      mode: config.mode || script.getAttribute('data-mode') || 'iframe',
+      baseUrl: config.baseUrl || 'https://webbot-ai.netlify.app',
+      persistSession: config.persistSession !== false, // Default to true
+      sessionTimeout: config.sessionTimeout || (30 * 24 * 60 * 60 * 1000) // 30 days default
     };
     
     console.log('WebBot Universal: Configuration:', options);
+    
+    // Session management utilities
+    const SessionManager = {
+      getSessionKey: () => `webbot_session_${chatbotId}_${websiteId}`,
+      getContactKey: () => `webbot_contact_${chatbotId}_${websiteId}`,
+      
+      hasActiveSession: function() {
+        if (!options.persistSession) return false;
+        try {
+          const sessionData = localStorage.getItem(this.getSessionKey());
+          const contactData = localStorage.getItem(this.getContactKey());
+          return !!(sessionData && contactData);
+        } catch (e) {
+          return false;
+        }
+      },
+      
+      getSessionAge: function() {
+        if (!options.persistSession) return 0;
+        try {
+          const sessionData = localStorage.getItem(this.getSessionKey());
+          if (sessionData) {
+            const data = JSON.parse(sessionData);
+            return Date.now() - (data.createdAt || 0);
+          }
+        } catch (e) {
+          return 0;
+        }
+        return 0;
+      },
+      
+      isSessionExpired: function() {
+        return this.getSessionAge() > options.sessionTimeout;
+      },
+      
+      clearExpiredSession: function() {
+        if (this.isSessionExpired()) {
+          this.clearSession();
+          console.log('WebBot Universal: Cleared expired session');
+        }
+      },
+      
+      clearSession: function() {
+        try {
+          localStorage.removeItem(this.getSessionKey());
+          localStorage.removeItem(this.getContactKey());
+        } catch (e) {
+          console.warn('WebBot Universal: Could not clear session from localStorage');
+        }
+      }
+    };
+    
+    // Check for expired sessions on load
+    SessionManager.clearExpiredSession();
     
     // Create widget based on mode
     function createWidget() {
@@ -108,8 +164,17 @@
       `;
       
       const iframe = document.createElement('iframe');
-      // Add transparency parameters to URL
-      iframe.src = `${options.baseUrl}/embed/${chatbotId}?websiteId=${websiteId}&transparent=true&iframe=true&mode=widget`;
+      // Add session parameters to URL
+      const sessionParams = new URLSearchParams({
+        websiteId: websiteId,
+        transparent: 'true',
+        iframe: 'true',
+        mode: 'widget',
+        persistSession: options.persistSession.toString(),
+        sessionTimeout: options.sessionTimeout.toString()
+      });
+      
+      iframe.src = `${options.baseUrl}/embed/${chatbotId}?${sessionParams.toString()}`;
       iframe.style.cssText = `
         width: 100% !important;
         height: 100% !important;
@@ -123,19 +188,27 @@
         outline: none !important;
       `;
       
-      // Set transparency attributes (SAFE - no content access)
+      // Set transparency attributes
       iframe.setAttribute('allowtransparency', 'true');
       iframe.setAttribute('frameborder', '0');
       iframe.setAttribute('scrolling', 'no');
       iframe.setAttribute('seamless', 'seamless');
       iframe.title = 'Chat Widget';
       
-      // Handle iframe load - SAFE (no cross-origin access)
+      // Handle iframe load
       iframe.onload = function() {
         console.log('WebBot Universal: iframe loaded successfully');
-        // Only style the iframe element itself
         iframe.style.background = 'transparent';
         iframe.style.backgroundColor = 'transparent';
+        
+        // Post message to iframe about session state
+        if (SessionManager.hasActiveSession()) {
+          iframe.contentWindow.postMessage({
+            type: 'webbot-session-info',
+            hasActiveSession: true,
+            sessionAge: SessionManager.getSessionAge()
+          }, '*');
+        }
       };
       
       iframe.onerror = function() {
@@ -145,12 +218,28 @@
       container.appendChild(iframe);
       document.body.appendChild(container);
       
-      // Auto-open if configured
+      // Listen for messages from iframe
+      window.addEventListener('message', function(event) {
+        if (event.origin !== new URL(options.baseUrl).origin) return;
+        
+        const data = event.data;
+        if (data.type === 'webbot-session-ended') {
+          SessionManager.clearSession();
+          console.log('WebBot Universal: Session ended by user');
+        } else if (data.type === 'webbot-session-created') {
+          console.log('WebBot Universal: New session created');
+        }
+      });
+      
+      // Auto-open logic with session awareness
       if (options.autoOpen) {
+        const hasSession = SessionManager.hasActiveSession();
+        const delay = hasSession ? 500 : 1000; // Faster for returning users
+        
         setTimeout(() => {
           container.style.display = 'block';
-          console.log('WebBot Universal: Auto-opened widget');
-        }, 1000);
+          console.log(`WebBot Universal: Auto-opened widget (${hasSession ? 'returning' : 'new'} user)`);
+        }, delay);
       }
       
       // Add responsive handling
@@ -163,12 +252,20 @@
     function createPopupWidget() {
       console.log('WebBot Universal: Creating popup widget');
       
+      const hasSession = SessionManager.hasActiveSession();
+      
       const button = document.createElement('button');
-      button.innerHTML = '💬 Chat';
+      button.innerHTML = hasSession ? '💬 Continue Chat' : '💬 Chat';
       button.style.cssText = getButtonStyles();
       button.onclick = () => {
+        const sessionParams = new URLSearchParams({
+          websiteId: websiteId,
+          persistSession: options.persistSession.toString(),
+          sessionTimeout: options.sessionTimeout.toString()
+        });
+        
         const popup = window.open(
-          `${options.baseUrl}/chat/${chatbotId}?websiteId=${websiteId}`,
+          `${options.baseUrl}/chat/${chatbotId}?${sessionParams.toString()}`,
           'webbot-chat',
           'width=400,height=600,scrollbars=no,resizable=yes,location=no,menubar=no,toolbar=no'
         );
@@ -176,9 +273,26 @@
           popup.focus();
         } else {
           // Popup blocked, fallback to new tab
-          window.open(`${options.baseUrl}/chat/${chatbotId}?websiteId=${websiteId}`, '_blank');
+          window.open(`${options.baseUrl}/chat/${chatbotId}?${sessionParams.toString()}`, '_blank');
         }
       };
+      
+      // Add session indicator
+      if (hasSession) {
+        const indicator = document.createElement('div');
+        indicator.style.cssText = `
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          width: 12px;
+          height: 12px;
+          background: #10B981;
+          border-radius: 50%;
+          border: 2px solid white;
+        `;
+        button.style.position = 'relative';
+        button.appendChild(indicator);
+      }
       
       document.body.appendChild(button);
       console.log('WebBot Universal: Popup button created');
@@ -188,20 +302,32 @@
     function createFloatingWidget() {
       console.log('WebBot Universal: Creating floating widget');
       
-      // Load the full widget script
+      // Load the full widget script with session parameters
       const widgetScript = document.createElement('script');
       widgetScript.src = `${options.baseUrl}/chatbot-widget.js`;
       widgetScript.setAttribute('data-chatbot-id', chatbotId);
       widgetScript.setAttribute('data-website-id', websiteId);
+      widgetScript.setAttribute('data-persist-session', options.persistSession.toString());
+      widgetScript.setAttribute('data-session-timeout', options.sessionTimeout.toString());
+      
       widgetScript.onload = () => {
         console.log('WebBot Universal: Full widget script loaded');
+        
+        // Notify about session state
+        if (window.WebBotWidget && SessionManager.hasActiveSession()) {
+          window.WebBotWidget.setSessionInfo({
+            hasActiveSession: true,
+            sessionAge: SessionManager.getSessionAge()
+          });
+        }
       };
+      
       widgetScript.onerror = () => {
         console.error('WebBot Universal: Failed to load full widget script, falling back to iframe');
-        // Fallback to iframe mode
         options.mode = 'iframe';
         createIframeWidget();
       };
+      
       document.head.appendChild(widgetScript);
     }
     
@@ -225,11 +351,13 @@
     
     function getButtonStyles() {
       const positionStyles = getPositionStyles();
+      const hasSession = SessionManager.hasActiveSession();
+      
       return `
         ${positionStyles}
         position: fixed !important;
         z-index: 999999 !important;
-        background: #3B82F6 !important;
+        background: ${hasSession ? '#10B981' : '#3B82F6'} !important;
         color: white !important;
         border: none !important;
         padding: 12px 20px !important;
@@ -238,7 +366,7 @@
         font-family: system-ui, -apple-system, sans-serif !important;
         font-size: 14px !important;
         font-weight: 500 !important;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+        box-shadow: 0 4px 12px rgba(${hasSession ? '16, 185, 129' : '59, 130, 246'}, 0.3) !important;
         transition: all 0.2s ease !important;
         outline: none !important;
       `;
@@ -281,11 +409,12 @@
       }
     }
     
-    // Expose API for external control
+    // Enhanced API for external control
     window.WebBotUniversal = {
       chatbotId: chatbotId,
       websiteId: websiteId,
       options: options,
+      SessionManager: SessionManager,
       
       // Show the widget
       open: function() {
@@ -330,6 +459,25 @@
         return !!document.getElementById('webbot-universal-container');
       },
       
+      // Session management methods
+      hasActiveSession: function() {
+        return SessionManager.hasActiveSession();
+      },
+      
+      endSession: function() {
+        SessionManager.clearSession();
+        this.reload(); // Reload widget to reflect session state
+        console.log('WebBot Universal: Session ended via API');
+      },
+      
+      getSessionInfo: function() {
+        return {
+          hasActiveSession: SessionManager.hasActiveSession(),
+          sessionAge: SessionManager.getSessionAge(),
+          isExpired: SessionManager.isSessionExpired()
+        };
+      },
+      
       // Reload widget with new options
       reload: function(newOptions = {}) {
         this.destroy();
@@ -346,6 +494,6 @@
     // Initialize
     init();
     
-    console.log('WebBot Universal: Initialized successfully with transparency support');
+    console.log('WebBot Universal: Initialized successfully with session support');
     
   })();
